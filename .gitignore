@@ -17,6 +17,8 @@
 # Binaries
 bin/
 sme-server
+main
+server
 
 # Docker and Build
 data/
