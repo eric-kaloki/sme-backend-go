@@ -22,6 +22,28 @@ const (
 	gcmStandardNonceSize = 12
 )
 
+func parseKey(keyStr string) []byte {
+	b, err := base64.StdEncoding.DecodeString(keyStr)
+	if err == nil {
+		switch len(b) {
+		case 16, 24, 32:
+			// Valid AES key sizes: use as-is
+			return b
+		case 64:
+			// Java may use a 512-bit (64-byte) key; truncate to first 32 bytes for AES-256
+			return b[:32]
+		default:
+			if len(b) > 32 {
+				// Any key longer than 32 bytes: use first 32 bytes
+				return b[:32]
+			}
+		}
+	}
+	// Fallback: hash the raw key string to always produce a valid 32-byte AES key
+	hash := sha256.Sum256([]byte(keyStr))
+	return hash[:]
+}
+
 // Encrypt encrypts the plaintext using AES-256-GCM.
 // The output format matches Java's EncryptionUtil:
 // Base64([12-byte IV][Ciphertext + 16-byte Tag])
@@ -30,10 +52,7 @@ func Encrypt(plaintext string, keyBase64 string) (string, error) {
 		return plaintext, nil
 	}
 
-	key, err := base64.StdEncoding.DecodeString(keyBase64)
-	if err != nil {
-		return "", err
-	}
+	key := parseKey(keyBase64)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -68,10 +87,7 @@ func Decrypt(ciphertextBase64 string, keyBase64 string) (string, error) {
 		return ciphertextBase64, nil
 	}
 
-	key, err := base64.StdEncoding.DecodeString(keyBase64)
-	if err != nil {
-		return "", err
-	}
+	key := parseKey(keyBase64)
 
 	combined, err := base64.StdEncoding.DecodeString(ciphertextBase64)
 	if err != nil {
