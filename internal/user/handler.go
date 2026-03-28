@@ -135,28 +135,6 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	h.handleServiceError(w, err, "User updated", u, http.StatusOK)
 }
 
-func (h *Handler) PromoteUser(w http.ResponseWriter, r *http.Request) {
-	reqUser := common.GetUserFromContext(r.Context())
-	id := chi.URLParam(r, "id")
-	var req RoleChangeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return
-	}
-	u, err := h.service.PromoteUser(id, req.NewRole, &User{ID: reqUser.ID, Role: reqUser.Role})
-	h.handleServiceError(w, err, "User promoted", u, http.StatusOK)
-}
-
-func (h *Handler) DemoteUser(w http.ResponseWriter, r *http.Request) {
-	reqUser := common.GetUserFromContext(r.Context())
-	id := chi.URLParam(r, "id")
-	var req RoleChangeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return
-	}
-	u, err := h.service.DemoteUser(id, req.NewRole, &User{ID: reqUser.ID, Role: reqUser.Role})
-	h.handleServiceError(w, err, "User demoted", u, http.StatusOK)
-}
-
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	reqUser := common.GetUserFromContext(r.Context())
 	id := chi.URLParam(r, "id")

@@ -16,6 +16,8 @@ type User struct {
 	Role                string     `db:"role" json:"role"`
 	Status              string     `db:"status" json:"status"`
 	IsTemporaryPassword bool       `db:"is_temporary_password" json:"isTemporaryPassword"`
+	ResetToken          *string    `db:"reset_token" json:"-"`
+	ResetTokenExpiry    *time.Time `db:"reset_token_expiry" json:"-"`
 	CustomPermissions   *string    `db:"custom_permissions" json:"customPermissions"`
 	LastLogin           *time.Time `db:"last_login" json:"lastLogin"`
 	CreatedAt           time.Time  `db:"created_at" json:"createdAt"`

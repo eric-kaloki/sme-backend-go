@@ -1,13 +1,19 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"github.com/go-chi/httprate"
 	"github.com/machakos/sme-backend-go/config"
 	"github.com/machakos/sme-backend-go/internal/audit"
 	"github.com/machakos/sme-backend-go/internal/auth"
@@ -32,7 +38,8 @@ func main() {
 	jwtProvider := jwt.NewTokenProvider(cfg.JWTSecret)
 
 	// 3. Init handlers
-	authHandler := auth.NewHandler(userRepo, jwtProvider)
+	mailer := resend.NewMailer(cfg.ResendAPIKey, cfg.ResendEnabled, cfg.ResendFromEmail, cfg.ResendFromName)
+	authHandler := auth.NewHandler(userRepo, jwtProvider, mailer)
 
 	// 4. Router setup
 	r := chi.NewRouter()
@@ -42,6 +49,7 @@ func main() {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(httprate.LimitByIP(100, 1*time.Minute))
 
 	// CORS matching Spring Boot config
 	r.Use(cors.Handler(cors.Options{
@@ -58,8 +66,11 @@ func main() {
 
 	// Public routes
 	r.Route("/api/auth", func(r chi.Router) {
+		r.Use(httprate.LimitByIP(5, 1*time.Minute))
 		r.Post("/login", authHandler.Login)
 		r.Post("/logout", authHandler.Logout)
+		r.Post("/forgot-password", authHandler.ForgotPassword)
+		r.Post("/reset-password", authHandler.ResetPassword)
 	})
 
 	// Private routes
@@ -70,16 +81,14 @@ func main() {
 	auditRepo := audit.NewRepository(db)
 
 	// User Routes
-	userService := user.NewService(userRepo, auditRepo, resend.NewMailer(cfg.ResendAPIKey, cfg.ResendEnabled, cfg.ResendFromEmail, cfg.ResendFromName))
+	userService := user.NewService(userRepo, auditRepo, mailer) 
 	userHandler := user.NewHandler(userService)
 
 	apiRouter.Route("/users", func(r chi.Router) {
-		r.Post("/", userHandler.CreateUser) // POST /api/users
-		r.Get("/", userHandler.GetAllUsers) // GET /api/users
+		r.Post("/", userHandler.CreateUser)
+		r.Get("/", userHandler.GetAllUsers)
 		r.Get("/{id}", userHandler.GetUserById)
 		r.Put("/{id}", userHandler.UpdateUser)
-		r.Post("/{id}/promote", userHandler.PromoteUser)
-		r.Post("/{id}/demote", userHandler.DemoteUser)
 		r.Post("/{id}/reset-password", userHandler.ResetPassword)
 		r.Delete("/{id}", userHandler.DeleteUser)
 	})
@@ -112,6 +121,10 @@ func main() {
 	apiRouter.Route("/audit", func(r chi.Router) {
 		r.Post("/log-export", auditHandler.LogExport)
 	})
+		// Private Auth Endpoints (Requires JWT)
+	apiRouter.Route("/auth", func(r chi.Router) {
+		r.Post("/change-password", authHandler.ChangePassword)
+	})
 
 	apiRouter.Route("/audit-logs", func(r chi.Router) {
 		r.Get("/", auditHandler.GetAuditLogs)
@@ -119,9 +132,37 @@ func main() {
 	})
 
 	r.Mount("/api", apiRouter)
-
-	log.Printf("Machakos SME Go Backend listening on port %s", cfg.Port)
-	if err := http.ListenAndServe(":"+cfg.Port, r); err != nil {
-		log.Fatal(err)
+	// 5. Build the Server manually for graceful shutdown support
+	srv := &http.Server{
+		Addr:    ":" + cfg.Port,
+		Handler: r,
 	}
+
+	// 6. Run the server in a goroutine so it doesn't block
+	go func() {
+		log.Printf("Machakos SME Go Backend successfully running on port %s", cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	// 7. Wait for an OS interrupt signal (e.g., CTRL+C or Docker shutdown)
+	quit := make(chan os.Signal, 1)
+	// SIGINT is CTRL+C, SIGTERM is sent by Kubernetes/Docker when tearing down pods
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	<-quit // This blocks the main thread until a signal is received
+	log.Println("\nShutdown signal received! Shutting down server gracefully...")
+
+	// 8. Give active requests 10 seconds to finish what they are doing
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("Server forced to shutdown aggressively: %v", err)
+	}
+
+	// 9. Close the database safely
+	db.Close()
+	log.Println("Server and Database connections closed successfully.")
 }

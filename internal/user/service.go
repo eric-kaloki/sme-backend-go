@@ -111,7 +111,7 @@ func (s *Service) CreateUser(req CreateUserRequest, creator *User) (*User, error
 	}
 
 	s.auditRepo.LogAsync(audit.AuditLog{
-		Action:      "USER_CREATE",
+		Action:      "CREATE_USER",
 		EntityType:  "USER",
 		EntityID:    &newUser.ID,
 		UserID:      &creator.ID,
@@ -164,7 +164,8 @@ func (s *Service) UpdateUser(id string, req UpdateUserRequest, updater *User) (*
 		return nil, ErrForbidden
 	}
 
-	oldData := audit.MarshalData(map[string]interface{}{"email": u.Email, "firstName": u.FirstName, "lastName": u.LastName, "phone": u.Phone, "status": u.Status})
+	oldDataMap := map[string]interface{}{"email": u.Email, "firstName": u.FirstName, "lastName": u.LastName, "phone": u.Phone, "status": u.Status, "role": u.Role}
+	oldData := audit.MarshalData(oldDataMap)
 
 	if req.FirstName != nil {
 		u.FirstName = *req.FirstName
@@ -183,6 +184,37 @@ func (s *Service) UpdateUser(id string, req UpdateUserRequest, updater *User) (*
 		u.Email = lowered
 	}
 
+	hasRoleChange := false
+	if !isSelfUpdate && req.Role != nil {
+		newRole := strings.ToUpper(*req.Role)
+		if newRole != u.Role {
+			if !validRoles[newRole] {
+				return nil, ErrBadRequest
+			}
+			currLvl := roleHierarchy[u.Role]
+			newLvl := roleHierarchy[newRole]
+			isPromotion := newLvl > currLvl
+
+			if isPromotion {
+				if updater.Role != "SUPER_ADMIN" && updater.Role != "CHIEF_OFFICER" {
+					return nil, ErrForbidden
+				}
+				if newRole == "SUPER_ADMIN" && updater.Role != "SUPER_ADMIN" {
+					return nil, ErrForbidden
+				}
+				if updater.Role != "SUPER_ADMIN" && newLvl >= roleHierarchy[updater.Role] {
+					return nil, ErrForbidden
+				}
+			} else {
+				if updater.Role != "SUPER_ADMIN" {
+					return nil, ErrForbidden
+				}
+			}
+			u.Role = newRole
+			hasRoleChange = true
+		}
+	}
+
 	if !isSelfUpdate && req.Status != nil {
 		status := strings.ToUpper(*req.Status)
 		if !validStatuses[status] {
@@ -198,86 +230,19 @@ func (s *Service) UpdateUser(id string, req UpdateUserRequest, updater *User) (*
 		return nil, err
 	}
 
-	s.auditRepo.LogAsync(audit.AuditLog{
-		Action:      "USER_UPDATE",
-		EntityType:  "USER",
-		EntityID:    &u.ID,
-		UserID:      &updater.ID,
-		Description: ptr("Updated user: " + u.Email),
-		OldData:     oldData,
-		NewData:     audit.MarshalData(map[string]interface{}{"email": u.Email, "firstName": u.FirstName, "lastName": u.LastName, "phone": u.Phone, "status": u.Status}),
-	})
-
-	return u, nil
-}
-
-func (s *Service) PromoteUser(id string, newRole string, promoter *User) (*User, error) {
-	return s.changeRole(id, newRole, promoter, true)
-}
-
-func (s *Service) DemoteUser(id string, newRole string, demoter *User) (*User, error) {
-	return s.changeRole(id, newRole, demoter, false)
-}
-
-func (s *Service) changeRole(id string, newRole string, actor *User, isPromotion bool) (*User, error) {
-	newRole = strings.ToUpper(newRole)
-	if !validRoles[newRole] {
-		return nil, ErrBadRequest
-	}
-	if id == actor.ID {
-		return nil, ErrBadRequest // Cannot change own role
-	}
-
-	if isPromotion {
-		if actor.Role != "SUPER_ADMIN" && actor.Role != "CHIEF_OFFICER" {
-			return nil, ErrForbidden
-		}
-		if newRole == "SUPER_ADMIN" && actor.Role != "SUPER_ADMIN" {
-			return nil, ErrForbidden
-		}
-	} else {
-		if actor.Role != "SUPER_ADMIN" {
-			return nil, ErrForbidden
-		}
-	}
-
-	u, err := s.repo.FindByID(id)
-	if err != nil {
-		return nil, err
-	}
-
-	currLvl := roleHierarchy[u.Role]
-	newLvl := roleHierarchy[newRole]
-
-	if isPromotion && newLvl <= currLvl {
-		return nil, ErrBadRequest
-	}
-	if !isPromotion && newLvl >= currLvl {
-		return nil, ErrBadRequest
-	}
-
-	if isPromotion && actor.Role != "SUPER_ADMIN" && newLvl >= roleHierarchy[actor.Role] {
-		return nil, ErrForbidden
-	}
-
-	oldRole := u.Role
-	u.Role = newRole
-
-	if err := s.repo.Update(u); err != nil {
-		return nil, err
-	}
-
-	action := "USER_PROMOTE"
-	if !isPromotion {
-		action = "USER_DEMOTE"
+	action := "UPDATE_USER"
+	if hasRoleChange {
+		action = "ASSIGN_ROLE" // Prioritizing role change for audit
 	}
 
 	s.auditRepo.LogAsync(audit.AuditLog{
 		Action:      action,
 		EntityType:  "USER",
 		EntityID:    &u.ID,
-		UserID:      &actor.ID,
-		Description: ptr("Changed role from " + oldRole + " to " + newRole),
+		UserID:      &updater.ID,
+		Description: ptr("Updated user: " + u.Email),
+		OldData:     oldData,
+		NewData:     audit.MarshalData(map[string]interface{}{"email": u.Email, "firstName": u.FirstName, "lastName": u.LastName, "phone": u.Phone, "status": u.Status, "role": u.Role}),
 	})
 
 	return u, nil
@@ -311,7 +276,7 @@ func (s *Service) DeleteUser(id string, deleter *User) error {
 	}
 
 	s.auditRepo.LogAsync(audit.AuditLog{
-		Action:      "USER_DELETE",
+		Action:      "DELETE_USER",
 		EntityType:  "USER",
 		EntityID:    &u.ID,
 		UserID:      &deleter.ID,
@@ -345,7 +310,7 @@ func (s *Service) ResetPassword(id string, resetter *User) error {
 	}
 
 	s.auditRepo.LogAsync(audit.AuditLog{
-		Action:      "PASSWORD_RESET",
+		Action:      "UPDATE_USER",
 		EntityType:  "USER",
 		EntityID:    &u.ID,
 		UserID:      &resetter.ID,

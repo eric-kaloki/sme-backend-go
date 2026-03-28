@@ -15,6 +15,7 @@ type UpdateUserRequest struct {
 	Email     *string `json:"email,omitempty" validate:"omitempty,email"`
 	Phone     *string `json:"phone,omitempty"`
 	Status    *string `json:"status,omitempty"`
+	Role      *string `json:"role,omitempty"`
 }
 
 type RoleChangeRequest struct {

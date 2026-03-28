@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -83,13 +84,15 @@ func (r *Repository) Create(user *User) error {
 func (r *Repository) Update(user *User) error {
 	query := `
 		UPDATE users SET
-			first_name = $1, last_name = $2, email = $3, username = $4, password = $5, phone = $6, role = $7, status = $8, is_temporary_password = $9, custom_permissions = $10, updated_at = NOW()
-		WHERE id = $11
+			first_name = $1, last_name = $2, email = $3, username = $4, password = $5, phone = $6, role = $7, status = $8, is_temporary_password = $9, custom_permissions = $10,
+			reset_token = $11, reset_token_expiry = $12, updated_at = NOW()
+		WHERE id = $13
 		RETURNING updated_at
 	`
 	return r.db.QueryRow(
 		query,
-		user.FirstName, user.LastName, user.Email, user.Username, user.Password, user.Phone, user.Role, user.Status, user.IsTemporaryPassword, user.CustomPermissions, user.ID,
+		user.FirstName, user.LastName, user.Email, user.Username, user.Password, user.Phone, user.Role, user.Status, user.IsTemporaryPassword, user.CustomPermissions,
+		user.ResetToken, user.ResetTokenExpiry, user.ID,
 	).Scan(&user.UpdatedAt)
 }
 
@@ -157,4 +160,22 @@ func (r *Repository) SearchUsers(search, role, status, sortBy, sortDir string, p
 	var users []User
 	err = r.db.Select(&users, r.db.Rebind(query), args...)
 	return users, totalElements, err
+}
+
+func (r *Repository) SetPasswordResetToken(id string, token *string, expiry *time.Time) error {
+	_, err := r.db.Exec("UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE id = $3", token, expiry, id)
+	return err
+}
+
+func (r *Repository) FindByResetToken(token string) (*User, error) {
+	var user User
+	// Automatically checks that the token hasn't expired!
+	err := r.db.Get(&user, "SELECT * FROM users WHERE reset_token = $1 AND reset_token_expiry > NOW()", token)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+	return &user, nil
 }
