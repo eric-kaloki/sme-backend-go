@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+	"github.com/machakos/sme-backend-go/internal/audit"
 	"github.com/machakos/sme-backend-go/internal/common"
 	"github.com/machakos/sme-backend-go/internal/user"
 	"github.com/machakos/sme-backend-go/pkg/argon2"
@@ -14,18 +15,20 @@ import (
 )
 
 type Handler struct {
-	userRepo *user.Repository
-	jwt      *jwt.TokenProvider
-	mailer   *resend.Mailer
-	validate *validator.Validate
+	userRepo  *user.Repository
+	auditRepo *audit.Repository
+	jwt       *jwt.TokenProvider
+	mailer    *resend.Mailer
+	validate  *validator.Validate
 }
 
-func NewHandler(userRepo *user.Repository, jwtProv *jwt.TokenProvider, mailer *resend.Mailer) *Handler {
+func NewHandler(userRepo *user.Repository, auditRepo *audit.Repository, jwtProv *jwt.TokenProvider, mailer *resend.Mailer) *Handler {
 	return &Handler{
-		userRepo: userRepo,
-		jwt:      jwtProv,
-		mailer:   mailer,
-		validate: validator.New(),
+		userRepo:  userRepo,
+		auditRepo: auditRepo,
+		jwt:       jwtProv,
+		mailer:    mailer,
+		validate:  validator.New(),
 	}
 }
 
@@ -49,7 +52,7 @@ type UserResponse struct {
 
 type LoginResponse struct {
 	Token                  string       `json:"token"`
-	RefreshToken           string       `json:"refreshToken"` // Just generating a fresh HS512 token for now
+	RefreshToken           string       `json:"refreshToken"`
 	Admin                  UserResponse `json:"admin"`
 	SessionTimeout         int          `json:"sessionTimeout"`
 	RequiresPasswordChange bool         `json:"requiresPasswordChange"`
@@ -72,6 +75,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		// Fallback: try to find by username in case the user typed their username into the "Email" field
 		u, err = h.userRepo.FindByUsername(req.Email)
 		if err != nil {
+			h.auditRepo.LogAsync(audit.AuditLog{
+				Action:      "LOGIN_FAILED",
+				EntityType:  "AUTH",
+				Description: h.ptr("Failed login attempt: " + req.Email),
+				IPAddress:   h.ptr(r.RemoteAddr),
+				UserAgent:   h.ptr(r.Header.Get("User-Agent")),
+			})
 			common.RespondError(w, http.StatusUnauthorized, "Invalid email, username, or password", "")
 			return
 		}
@@ -80,6 +90,14 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	// Verify password
 	match, err := argon2.CheckPassword(req.Password, u.Password)
 	if err != nil || !match {
+		h.auditRepo.LogAsync(audit.AuditLog{
+			Action:      "LOGIN_FAILED",
+			EntityType:  "AUTH",
+			UserID:      &u.ID,
+			Description: h.ptr("Invalid password for user: " + u.Email),
+			IPAddress:   h.ptr(r.RemoteAddr),
+			UserAgent:   h.ptr(r.Header.Get("User-Agent")),
+		})
 		common.RespondError(w, http.StatusUnauthorized, "Invalid email or password", "")
 		return
 	}
@@ -101,6 +119,16 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		common.RespondError(w, http.StatusInternalServerError, "Failed to generate token", err.Error())
 		return
 	}
+
+	// AUDIT LOG
+	h.auditRepo.LogAsync(audit.AuditLog{
+		Action:      "LOGIN",
+		EntityType:  "AUTH",
+		UserID:      &u.ID,
+		Description: h.ptr("User logged in: " + u.Email),
+		IPAddress:   h.ptr(r.RemoteAddr),
+		UserAgent:   h.ptr(r.Header.Get("User-Agent")),
+	})
 
 	// Update last login asynchronously
 	go h.userRepo.UpdateLastLogin(u.ID)
@@ -129,7 +157,23 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	// In a stateless JWT setup, logout is mainly handled client-side.
+	user := common.GetUserFromContext(r.Context())
+	if user != nil {
+		h.auditRepo.LogAsync(audit.AuditLog{
+			Action:      "LOGOUT",
+			EntityType:  "AUTH",
+			UserID:      &user.ID,
+			Description: h.ptr("User logged out: " + user.Email),
+			IPAddress:   h.ptr(r.RemoteAddr),
+			UserAgent:   h.ptr(r.Header.Get("User-Agent")),
+		})
+	}
+
 	common.RespondSuccess(w, http.StatusOK, "Logged out successfully", nil)
+}
+
+func (h *Handler) ptr(s string) *string {
+	return &s
 }
 
 type ForgotPasswordRequest struct {
@@ -138,8 +182,8 @@ type ForgotPasswordRequest struct {
 
 type ResetPasswordRequest struct {
 	Token       string `json:"token" validate:"required"`
-	Password    string `json:"password"`    
-	NewPassword string `json:"newPassword"` 
+	Password    string `json:"password"`
+	NewPassword string `json:"newPassword"`
 }
 
 func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
@@ -166,7 +210,6 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	common.RespondSuccess(w, http.StatusOK, "If that email exists, a reset link has been sent.", nil)
 }
 
-
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	var req ResetPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -179,7 +222,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	if actualPassword == "" {
 		actualPassword = req.Password
 	}
-	
+
 	// 2. We MUST manually validate the password since it could be in either field
 	if len(actualPassword) < 8 {
 		common.RespondError(w, http.StatusBadRequest, "Password must be at least 8 characters", "")
@@ -219,7 +262,9 @@ type ChangePasswordRequest struct {
 
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	reqUser := common.GetUserFromContext(r.Context())
-	if reqUser == nil { return }
+	if reqUser == nil {
+		return
+	}
 
 	var req ChangePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

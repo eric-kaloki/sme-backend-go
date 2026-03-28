@@ -111,7 +111,7 @@ func (s *Service) CreateUser(req CreateUserRequest, creator *User) (*User, error
 	}
 
 	s.auditRepo.LogAsync(audit.AuditLog{
-		Action:      "CREATE_USER",
+		Action:      "USER_CREATE",
 		EntityType:  "USER",
 		EntityID:    &newUser.ID,
 		UserID:      &creator.ID,
@@ -230,9 +230,9 @@ func (s *Service) UpdateUser(id string, req UpdateUserRequest, updater *User) (*
 		return nil, err
 	}
 
-	action := "UPDATE_USER"
+	action := "USER_UPDATE"
 	if hasRoleChange {
-		action = "ASSIGN_ROLE" // Prioritizing role change for audit
+		action = "USER_PROMOTE" // Prioritizing role change for audit
 	}
 
 	s.auditRepo.LogAsync(audit.AuditLog{
@@ -276,7 +276,7 @@ func (s *Service) DeleteUser(id string, deleter *User) error {
 	}
 
 	s.auditRepo.LogAsync(audit.AuditLog{
-		Action:      "DELETE_USER",
+		Action:      "USER_DELETE",
 		EntityType:  "USER",
 		EntityID:    &u.ID,
 		UserID:      &deleter.ID,
@@ -310,7 +310,7 @@ func (s *Service) ResetPassword(id string, resetter *User) error {
 	}
 
 	s.auditRepo.LogAsync(audit.AuditLog{
-		Action:      "UPDATE_USER",
+		Action:      "PASSWORD_RESET",
 		EntityType:  "USER",
 		EntityID:    &u.ID,
 		UserID:      &resetter.ID,

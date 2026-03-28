@@ -3,6 +3,8 @@ package common
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"strings"
 )
 
 // ApiResponse mimics the existing Java ApiResponse structure
@@ -28,12 +30,25 @@ func RespondJSON(w http.ResponseWriter, status int, payload interface{}) {
 	w.Write(response)
 }
 
-// RespondError sends an ApiResponse formatted as an error
+// RespondError sends an ApiResponse formatted as an error.
+// In production, internal server errors (500+) are sanitized to prevent information leakage.
 func RespondError(w http.ResponseWriter, status int, message, errorDetail string) {
+	displayError := errorDetail
+
+	// Simple sanitization for production to prevent DB/system leak
+	if os.Getenv("GO_ENV") == "production" && status >= http.StatusInternalServerError {
+		displayError = "An internal server error occurred. Please contact support if this persists."
+	} else if os.Getenv("GO_ENV") == "production" {
+		// Even for 400s, let's strip common DB driver prefixes just in case
+		if strings.Contains(displayError, "pq: ") || strings.Contains(displayError, "sql: ") {
+			displayError = "A database error occurred while processing the request."
+		}
+	}
+
 	RespondJSON(w, status, ApiResponse{
 		Success: false,
 		Message: message,
-		Error:   errorDetail,
+		Error:   displayError,
 	})
 }
 

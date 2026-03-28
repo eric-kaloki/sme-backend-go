@@ -6,9 +6,9 @@ import "time"
 type SmeRequest struct {
 	BusinessName         string  `json:"businessName" validate:"required,min=2"`
 	OwnerName            string  `json:"ownerName" validate:"required"`
-	Phone                string  `json:"phone" validate:"required"`
+	Phone                string  `json:"phone" validate:"required,regexp=^(01|07)\\d{8}|(2547|2541)\\d{8}$"`
 	Email                *string `json:"email,omitempty" validate:"omitempty,email"`
-	IDNumber             *string `json:"idNumber,omitempty"`
+	IDNumber             *string `json:"idNumber,omitempty" validate:"omitempty,regexp=^\\d{7,8}$"`
 	BusinessPermitNumber *string `json:"businessPermitNumber,omitempty"`
 	Gender               string  `json:"gender" validate:"oneof=MALE FEMALE OTHER"`
 	Category             string  `json:"category" validate:"required"`

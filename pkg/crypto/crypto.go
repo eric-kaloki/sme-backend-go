@@ -39,9 +39,7 @@ func parseKey(keyStr string) []byte {
 			}
 		}
 	}
-	// Fallback: hash the raw key string to always produce a valid 32-byte AES key
-	hash := sha256.Sum256([]byte(keyStr))
-	return hash[:]
+	panic("ENCRYPTION_SECRET_KEY is misconfigured or invalid Base64. Server cannot start securely.")
 }
 
 // Encrypt encrypts the plaintext using AES-256-GCM.

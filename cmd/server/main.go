@@ -35,11 +35,12 @@ func main() {
 
 	// 2. Init packages & repos
 	userRepo := user.NewRepository(db)
+	auditRepo := audit.NewRepository(db)
 	jwtProvider := jwt.NewTokenProvider(cfg.JWTSecret)
 
 	// 3. Init handlers
 	mailer := resend.NewMailer(cfg.ResendAPIKey, cfg.ResendEnabled, cfg.ResendFromEmail, cfg.ResendFromName)
-	authHandler := auth.NewHandler(userRepo, jwtProvider, mailer)
+	authHandler := auth.NewHandler(userRepo, auditRepo, jwtProvider, mailer)
 
 	// 4. Router setup
 	r := chi.NewRouter()
@@ -77,11 +78,8 @@ func main() {
 	apiRouter := chi.NewRouter()
 	apiRouter.Use(auth.RequireAuth(jwtProvider))
 
-	// Shared Repositories
-	auditRepo := audit.NewRepository(db)
-
 	// User Routes
-	userService := user.NewService(userRepo, auditRepo, mailer) 
+	userService := user.NewService(userRepo, auditRepo, mailer)
 	userHandler := user.NewHandler(userService)
 
 	apiRouter.Route("/users", func(r chi.Router) {
@@ -121,7 +119,7 @@ func main() {
 	apiRouter.Route("/audit", func(r chi.Router) {
 		r.Post("/log-export", auditHandler.LogExport)
 	})
-		// Private Auth Endpoints (Requires JWT)
+	// Private Auth Endpoints (Requires JWT)
 	apiRouter.Route("/auth", func(r chi.Router) {
 		r.Post("/change-password", authHandler.ChangePassword)
 	})
@@ -161,6 +159,8 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatalf("Server forced to shutdown aggressively: %v", err)
 	}
+
+	auditRepo.Close()
 
 	// 9. Close the database safely
 	db.Close()

@@ -3,31 +3,60 @@ package audit
 import (
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/jmoiron/sqlx"
 )
 
 type Repository struct {
-	db *sqlx.DB
+	db      *sqlx.DB
+	logChan chan AuditLog
+	wg      sync.WaitGroup
 }
 
 func NewRepository(db *sqlx.DB) *Repository {
-	return &Repository{db: db}
+	repo := &Repository{
+		db:      db,
+		logChan: make(chan AuditLog, 100), // Buffered channel for bursts
+	}
+
+	// Start background worker
+	repo.wg.Add(1)
+	go repo.processLogs()
+
+	return repo
 }
 
-// LogAsync inserts an audit log asynchronously into the database so it never blocks HTTP execution.
-func (r *Repository) LogAsync(logEntry AuditLog) {
-	go func(entry AuditLog) {
-		query := `
-			INSERT INTO audit_logs 
-			(id, action, entity_type, entity_id, old_data, new_data, description, ip_address, user_agent, user_id, sme_id, created_at, updated_at) 
-			VALUES 
-			(gen_random_uuid(), :action, :entity_type, :entity_id, :old_data, :new_data, :description, :ip_address, :user_agent, :user_id, :sme_id, NOW(), NOW())
-		`
+func (r *Repository) processLogs() {
+	defer r.wg.Done()
+
+	query := `
+		INSERT INTO audit_logs 
+		(id, action, entity_type, entity_id, old_data, new_data, description, ip_address, user_agent, user_id, sme_id, created_at, updated_at) 
+		VALUES 
+		(gen_random_uuid(), :action, :entity_type, :entity_id, :old_data, :new_data, :description, :ip_address, :user_agent, :user_id, :sme_id, NOW(), NOW())
+	`
+
+	for entry := range r.logChan {
 		if _, err := r.db.NamedExec(query, entry); err != nil {
 			log.Printf("ERROR: Failed to save audit log: %v", err)
 		}
-	}(logEntry)
+	}
+}
+
+// LogAsync sends the audit log to a background worker to ensure non-blocking execution.
+func (r *Repository) LogAsync(logEntry AuditLog) {
+	select {
+	case r.logChan <- logEntry:
+	default:
+		log.Printf("WARNING: Audit log queue full, dropping log: %s", logEntry.Action)
+	}
+}
+
+// Close gracefully shuts down the background worker, ensuring all pending logs are saved.
+func (r *Repository) Close() {
+	close(r.logChan)
+	r.wg.Wait()
 }
 
 func (r *Repository) SearchAuditLogs(action, entityType, userId, entityId, search, sortBy, sortDir string, page, size int) ([]AuditLogResponse, int, error) {
