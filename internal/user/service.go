@@ -323,3 +323,43 @@ func (s *Service) ResetPassword(id string, resetter *User) error {
 	s.mailer.SendUserCredentials(u.Email, u.FirstName, u.LastName, u.Username, tempPassword, u.Role)
 	return nil
 }
+
+func (s *Service) GetUserAuditLogs(userId string, page, size int) (map[string]interface{}, error) {
+	u, err := s.repo.FindByID(userId)
+	if err != nil {
+		return nil, err
+	}
+
+	logs, total, err := s.auditRepo.SearchAuditLogs("", "", userId, "", "", "createdAt", "DESC", page, size)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range logs {
+		audit.MapToResponse(&logs[i])
+	}
+
+	totalPages := total / size
+	if total%size > 0 {
+		totalPages++
+	}
+
+	return map[string]interface{}{
+		"user": map[string]interface{}{
+			"id":        u.ID,
+			"firstName": u.FirstName,
+			"lastName":  u.LastName,
+			"email":     u.Email,
+			"role":      u.Role,
+		},
+		"auditLogs": logs,
+		"pagination": map[string]interface{}{
+			"page":       page,
+			"limit":      size,
+			"total":      total,
+			"totalPages": totalPages,
+			"hasNext":    page < totalPages-1,
+			"hasPrev":    page > 0,
+		},
+	}, nil
+}

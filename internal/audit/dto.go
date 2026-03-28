@@ -46,7 +46,7 @@ type AuditLogResponse struct {
 	User *UserMin `json:"user,omitempty"`
 }
 
-func mapToResponse(log *AuditLogResponse) *AuditLogResponse {
+func MapToResponse(log *AuditLogResponse) *AuditLogResponse {
 	if log.RawOldData != nil {
 		var o map[string]interface{}
 		if err := json.Unmarshal([]byte(*log.RawOldData), &o); err == nil {

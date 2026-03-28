@@ -44,7 +44,7 @@ func (h *Handler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 
 	// Map flattened joins to structured pointers
 	for i := range logs {
-		mapToResponse(&logs[i])
+		MapToResponse(&logs[i])
 	}
 
 	totalPages := total / size
@@ -78,7 +78,7 @@ func (h *Handler) ExportAuditLogs(w http.ResponseWriter, r *http.Request) {
 	headers := []string{"ID", "Action", "Entity Type", "Entity ID", "Description", "User Name", "User Email", "Created At"}
 	var rows [][]string
 	for i := range logs {
-		mapToResponse(&logs[i])
+		MapToResponse(&logs[i])
 		s := logs[i]
 		userName := ""
 		userEmail := ""

@@ -200,3 +200,26 @@ func (h *Handler) handleServiceError(w http.ResponseWriter, err error, successMs
 		common.RespondSuccess(w, status, successMsg, nil)
 	}
 }
+
+func (h *Handler) GetUserAuditLogs(w http.ResponseWriter, r *http.Request) {
+	userId := chi.URLParam(r, "userId")
+	if userId == "" {
+		common.RespondError(w, http.StatusBadRequest, "User ID is required", nil)
+		return
+	}
+
+	q := r.URL.Query()
+	page, _ := strconv.Atoi(q.Get("page"))
+	size, err := strconv.Atoi(q.Get("limit"))
+	if err != nil || size == 0 {
+		size = 10
+	}
+
+	data, err := h.service.GetUserAuditLogs(userId, page, size)
+	if err != nil {
+		h.handleServiceError(w, err, "", nil, http.StatusOK)
+		return
+	}
+
+	common.RespondSuccess(w, http.StatusOK, "User audit logs retrieved", data)
+}

@@ -122,6 +122,7 @@ func main() {
 	auditHandler := audit.NewHandler(auditRepo)
 	apiRouter.Route("/audit", func(r chi.Router) {
 		r.Post("/log-export", auditHandler.LogExport)
+		r.Get("/user/{userId}", userHandler.GetUserAuditLogs)
 	})
 
 	apiRouter.Route("/audit-logs", func(r chi.Router) {
