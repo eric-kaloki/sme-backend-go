@@ -2,8 +2,10 @@ package sme
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -20,9 +22,24 @@ type Handler struct {
 }
 
 func NewHandler(service *Service) *Handler {
+	v := validator.New()
+	
+	// Complex regexes are better handled as named validators to avoid tag parsing issues with pipes (|)
+	v.RegisterValidation("kenya_phone", func(fl validator.FieldLevel) bool {
+		phone := fl.Field().String()
+		re := regexp.MustCompile(`^(01|07)\d{8}|(2547|2541)\d{8}$`)
+		return re.MatchString(phone)
+	})
+	
+	v.RegisterValidation("kenya_id", func(fl validator.FieldLevel) bool {
+		id := fl.Field().String()
+		re := regexp.MustCompile(`^\d{7,8}$`)
+		return re.MatchString(id)
+	})
+
 	return &Handler{
 		service:  service,
-		validate: validator.New(),
+		validate: v,
 	}
 }
 
@@ -34,18 +51,18 @@ func (h *Handler) CreateSME(w http.ResponseWriter, r *http.Request) {
 
 	var req SmeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Invalid payload", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Invalid payload", err)
 		return
 	}
 	if err := h.validate.Struct(req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Validation error", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Validation error", err)
 		return
 	}
 
 	creator := &user.User{ID: reqUser.ID, Role: reqUser.Role}
 	smeEntity, err := h.service.CreateSME(req, creator)
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Failed to create SME", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Failed to create SME", err)
 		return
 	}
 
@@ -60,17 +77,17 @@ func (h *Handler) DeleteSME(w http.ResponseWriter, r *http.Request) {
 
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		common.RespondError(w, http.StatusBadRequest, "Missing SME ID", "id path parameter is required")
+		common.RespondError(w, http.StatusBadRequest, "Missing SME ID", errors.New("id path parameter is required"))
 		return
 	}
 
 	deleter := &user.User{ID: reqUser.ID, Role: reqUser.Role}
 	if err := h.service.DeleteSME(id, deleter); err != nil {
 		if err == ErrNotFound {
-			common.RespondError(w, http.StatusNotFound, "SME not found", err.Error())
+			common.RespondError(w, http.StatusNotFound, "SME not found", err)
 			return
 		}
-		common.RespondError(w, http.StatusInternalServerError, "Failed to delete SME", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Failed to delete SME", err)
 		return
 	}
 
@@ -85,17 +102,17 @@ func (h *Handler) UpdateSME(w http.ResponseWriter, r *http.Request) {
 
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		common.RespondError(w, http.StatusBadRequest, "Missing SME ID", "id path parameter is required")
+		common.RespondError(w, http.StatusBadRequest, "Missing SME ID", errors.New("id path parameter is required"))
 		return
 	}
 
 	var req SmeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Invalid payload", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Invalid payload", err)
 		return
 	}
 	if err := h.validate.Struct(req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Validation error", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Validation error", err)
 		return
 	}
 
@@ -103,10 +120,10 @@ func (h *Handler) UpdateSME(w http.ResponseWriter, r *http.Request) {
 	smeEntity, err := h.service.UpdateSME(id, req, updater)
 	if err != nil {
 		if err == ErrNotFound {
-			common.RespondError(w, http.StatusNotFound, "SME not found", err.Error())
+			common.RespondError(w, http.StatusNotFound, "SME not found", err)
 			return
 		}
-		common.RespondError(w, http.StatusInternalServerError, "Failed to update SME", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Failed to update SME", err)
 		return
 	}
 
@@ -133,7 +150,7 @@ func (h *Handler) GetAllSMEs(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Error retrieving SMEs", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Error retrieving SMEs", err)
 		return
 	}
 
@@ -168,7 +185,7 @@ func (h *Handler) GetStatsOverview(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	stats, err := h.service.GetStatsOverview(q.Get("subCounty"), q.Get("ward"))
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Failed to retrieve stats", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Failed to retrieve stats", err)
 		return
 	}
 	common.RespondSuccess(w, http.StatusOK, "Statistics overview retrieved successfully", stats)
@@ -177,7 +194,7 @@ func (h *Handler) GetStatsOverview(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetAvailableCategories(w http.ResponseWriter, r *http.Request) {
 	list, err := h.service.GetAvailableCategories()
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Error", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Error", err)
 		return
 	}
 	common.RespondSuccess(w, http.StatusOK, "Categories retrieved successfully", list)
@@ -186,7 +203,7 @@ func (h *Handler) GetAvailableCategories(w http.ResponseWriter, r *http.Request)
 func (h *Handler) GetAvailableSubCounties(w http.ResponseWriter, r *http.Request) {
 	list, err := h.service.GetAvailableSubCounties()
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Error", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Error", err)
 		return
 	}
 	common.RespondSuccess(w, http.StatusOK, "Sub-counties retrieved successfully", list)
@@ -195,7 +212,7 @@ func (h *Handler) GetAvailableSubCounties(w http.ResponseWriter, r *http.Request
 func (h *Handler) GetAvailableWards(w http.ResponseWriter, r *http.Request) {
 	list, err := h.service.GetAvailableWards()
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Error", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Error", err)
 		return
 	}
 	common.RespondSuccess(w, http.StatusOK, "Wards retrieved successfully", list)
@@ -220,7 +237,7 @@ func (h *Handler) ExportSMEs(w http.ResponseWriter, r *http.Request) {
 		q.Get("gender"), q.Get("pwd"), "createdAt", "DESC", 0, 100000, &user.User{ID: reqUser.ID, Role: reqUser.Role},
 	)
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Error exporting SMEs", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Error exporting SMEs", err)
 		return
 	}
 
@@ -255,7 +272,7 @@ func (h *Handler) ExportAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	stats, err := h.service.GetStatsOverview(q.Get("subCounty"), q.Get("ward"))
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Failed to retrieve stats", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Failed to retrieve stats", err)
 		return
 	}
 

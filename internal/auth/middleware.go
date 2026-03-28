@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -15,14 +16,14 @@ func RequireAuth(jwtProv *jwt.TokenProvider) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-				common.RespondError(w, http.StatusUnauthorized, "Missing or invalid authorization header", "")
+				common.RespondError(w, http.StatusUnauthorized, "Missing or invalid authorization header", nil)
 				return
 			}
 
 			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 			claims, err := jwtProv.ValidateToken(tokenString)
 			if err != nil {
-				common.RespondError(w, http.StatusUnauthorized, "Invalid or expired token", err.Error())
+				common.RespondError(w, http.StatusUnauthorized, "Invalid or expired token", err)
 				return
 			}
 
@@ -46,7 +47,7 @@ func RequireAnyRole(roles ...string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user := common.GetUserFromContext(r.Context())
 			if user == nil {
-				common.RespondError(w, http.StatusUnauthorized, "User context not found", "")
+				common.RespondError(w, http.StatusUnauthorized, "User context not found", nil)
 				return
 			}
 
@@ -59,7 +60,7 @@ func RequireAnyRole(roles ...string) func(http.Handler) http.Handler {
 			}
 
 			if !hasRole {
-				common.RespondError(w, http.StatusForbidden, "You do not have permission to perform this action", "role_forbidden")
+				common.RespondError(w, http.StatusForbidden, "You do not have permission to perform this action", errors.New("role_forbidden"))
 				return
 			}
 

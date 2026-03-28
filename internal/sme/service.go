@@ -220,6 +220,10 @@ func (s *Service) GetAvailableSubCounties() ([]string, error) {
 func (s *Service) GetAvailableWards() ([]string, error) { return s.repo.GetDistinctList("ward") }
 
 func (s *Service) DeleteSME(id string, deleter *user.User) error {
+	if deleter.Role == "SME_OFFICER" {
+		return ErrForbidden
+	}
+
 	existing, err := s.repo.FindByID(id)
 	if err != nil {
 		return err

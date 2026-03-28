@@ -36,7 +36,7 @@ func main() {
 	// 2. Init packages & repos
 	userRepo := user.NewRepository(db)
 	auditRepo := audit.NewRepository(db)
-	jwtProvider := jwt.NewTokenProvider(cfg.JWTSecret)
+	jwtProvider := jwt.NewTokenProvider(cfg.JWTSecret, cfg.JWTExpirationHours)
 
 	// 3. Init handlers
 	mailer := resend.NewMailer(cfg.ResendAPIKey, cfg.ResendEnabled, cfg.ResendFromEmail, cfg.ResendFromName)
@@ -153,7 +153,7 @@ func main() {
 	log.Println("\nShutdown signal received! Shutting down server gracefully...")
 
 	// 8. Give active requests 10 seconds to finish what they are doing
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.ShutdownTimeoutSeconds)*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {

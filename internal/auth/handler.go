@@ -11,6 +11,7 @@ import (
 	"github.com/machakos/sme-backend-go/pkg/jwt"
 	"github.com/machakos/sme-backend-go/pkg/resend"
 	"net/http"
+	"errors"
 	"time"
 )
 
@@ -61,12 +62,12 @@ type LoginResponse struct {
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Invalid request body", err)
 		return
 	}
 
 	if err := h.validate.Struct(req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Validation failed", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Validation failed", err)
 		return
 	}
 
@@ -82,7 +83,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 				IPAddress:   h.ptr(r.RemoteAddr),
 				UserAgent:   h.ptr(r.Header.Get("User-Agent")),
 			})
-			common.RespondError(w, http.StatusUnauthorized, "Invalid email, username, or password", "")
+			common.RespondError(w, http.StatusUnauthorized, "Invalid email, username, or password", nil)
 			return
 		}
 	}
@@ -98,13 +99,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			IPAddress:   h.ptr(r.RemoteAddr),
 			UserAgent:   h.ptr(r.Header.Get("User-Agent")),
 		})
-		common.RespondError(w, http.StatusUnauthorized, "Invalid email or password", "")
+		common.RespondError(w, http.StatusUnauthorized, "Invalid email or password", nil)
 		return
 	}
 
 	// Important: Check user status
 	if u.Status != "ACTIVE" {
-		common.RespondError(w, http.StatusForbidden, "User account is not active", "user_status_"+u.Status)
+		common.RespondError(w, http.StatusForbidden, "User account is not active", errors.New("user_status_"+u.Status))
 		return
 	}
 
@@ -116,7 +117,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	tokenString, err := h.jwt.GenerateToken(u.ID, u.Username, u.Email, u.Role, customPerms)
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Failed to generate token", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Failed to generate token", err)
 		return
 	}
 
@@ -189,7 +190,7 @@ type ResetPasswordRequest struct {
 func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	var req ForgotPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Invalid request payload", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Invalid request payload", err)
 		return
 	}
 	u, err := h.userRepo.FindByEmail(req.Email)
@@ -202,7 +203,7 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	token := uuid.New().String()
 	expires := time.Now().Add(10 * time.Minute)
 	if err := h.userRepo.SetPasswordResetToken(u.ID, &token, &expires); err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Failed to generate token", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Failed to generate token", err)
 		return
 	}
 	resetLink := "http://localhost:8081/reset-password?token=" + token
@@ -213,7 +214,7 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	var req ResetPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Invalid request", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Invalid request", err)
 		return
 	}
 
@@ -225,21 +226,21 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 
 	// 2. We MUST manually validate the password since it could be in either field
 	if len(actualPassword) < 8 {
-		common.RespondError(w, http.StatusBadRequest, "Password must be at least 8 characters", "")
+		common.RespondError(w, http.StatusBadRequest, "Password must be at least 8 characters", nil)
 		return
 	}
 
 	// 3. Validate the token exists and is not expired
 	u, err := h.userRepo.FindByResetToken(req.Token)
 	if err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Invalid or expired reset token", "")
+		common.RespondError(w, http.StatusBadRequest, "Invalid or expired reset token", nil)
 		return
 	}
 
 	// 4. Hash the actual password!
 	hash, err := argon2.HashPassword(actualPassword)
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Failed to encrypt password", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Failed to encrypt password", err)
 		return
 	}
 
@@ -249,7 +250,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	u.ResetToken = nil
 	u.ResetTokenExpiry = nil
 	if err := h.userRepo.Update(u); err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Failed to update password", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Failed to update password", err)
 		return
 	}
 	common.RespondSuccess(w, http.StatusOK, "Password reset successfully! You can now log in.", nil)
@@ -268,36 +269,36 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	var req ChangePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Invalid JSON payload", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Invalid JSON payload", err)
 		return
 	}
 	if err := h.validate.Struct(req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Validation error", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Validation error", err)
 		return
 	}
 
 	u, err := h.userRepo.FindByID(reqUser.ID)
 	if err != nil {
-		common.RespondError(w, http.StatusNotFound, "User not found", "")
+		common.RespondError(w, http.StatusNotFound, "User not found", nil)
 		return
 	}
 
 	match, err := argon2.CheckPassword(req.OldPassword, u.Password)
 	if err != nil || !match {
-		common.RespondError(w, http.StatusUnauthorized, "Incorrect old password", "")
+		common.RespondError(w, http.StatusUnauthorized, "Incorrect old password", nil)
 		return
 	}
 
 	hash, err := argon2.HashPassword(req.NewPassword)
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Failed to hash custom password", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Failed to hash custom password", err)
 		return
 	}
 
 	u.Password = hash
 	u.IsTemporaryPassword = false
 	if err := h.userRepo.Update(u); err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Failed to save password", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Failed to save password", err)
 		return
 	}
 

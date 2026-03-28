@@ -3,6 +3,7 @@ package user
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -17,9 +18,24 @@ type Handler struct {
 }
 
 func NewHandler(service *Service) *Handler {
+	v := validator.New()
+	
+	// Complex regexes are better handled as named validators to avoid tag parsing issues with pipes (|)
+	v.RegisterValidation("kenya_phone", func(fl validator.FieldLevel) bool {
+		phone := fl.Field().String()
+		re := regexp.MustCompile(`^(01|07)\d{8}|(2547|2541)\d{8}$`)
+		return re.MatchString(phone)
+	})
+	
+	v.RegisterValidation("kenya_id", func(fl validator.FieldLevel) bool {
+		id := fl.Field().String()
+		re := regexp.MustCompile(`^\d{7,8}$`)
+		return re.MatchString(id)
+	})
+
 	return &Handler{
 		service:  service,
-		validate: validator.New(),
+		validate: v,
 	}
 }
 
@@ -65,11 +81,11 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	var req CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Invalid payload", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Invalid payload", err)
 		return
 	}
 	if err := h.validate.Struct(req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Validation error", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Validation error", err)
 		return
 	}
 
@@ -124,11 +140,11 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var req UpdateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Invalid payload", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Invalid payload", err)
 		return
 	}
 	if err := h.validate.Struct(req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Validation", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Validation", err)
 		return
 	}
 	u, err := h.service.UpdateUser(id, req, &User{ID: reqUser.ID, Role: reqUser.Role})
@@ -160,22 +176,22 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleServiceError(w http.ResponseWriter, err error, successMsg string, data *User, status int) {
 	if err != nil {
 		if err == ErrForbidden {
-			common.RespondError(w, http.StatusForbidden, "Forbidden", "")
+			common.RespondError(w, http.StatusForbidden, "Forbidden", nil)
 			return
 		}
 		if err == ErrUserNotFound {
-			common.RespondError(w, http.StatusNotFound, "User not found", "")
+			common.RespondError(w, http.StatusNotFound, "User not found", nil)
 			return
 		}
 		if err == ErrConflict {
-			common.RespondError(w, http.StatusConflict, "Conflict", "")
+			common.RespondError(w, http.StatusConflict, "Conflict", nil)
 			return
 		}
 		if err == ErrBadRequest {
-			common.RespondError(w, http.StatusBadRequest, "Bad Request", "")
+			common.RespondError(w, http.StatusBadRequest, "Bad Request", nil)
 			return
 		}
-		common.RespondError(w, http.StatusInternalServerError, "Internal Error", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Internal Error", err)
 		return
 	}
 	if data != nil {

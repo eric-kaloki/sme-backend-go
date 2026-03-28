@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -16,8 +17,10 @@ type Config struct {
 	ResendEnabled       bool
 	ResendFromEmail     string
 	ResendFromName      string
-	EncryptionSecretKey string
-	BlindIndexKey       string
+	EncryptionSecretKey    string
+	BlindIndexKey          string
+	JWTExpirationHours     int
+	ShutdownTimeoutSeconds int
 }
 
 func LoadConfig() *Config {
@@ -49,8 +52,10 @@ func LoadConfig() *Config {
 		ResendEnabled:       os.Getenv("RESEND_ENABLED") == "true",
 		ResendFromEmail:     getEnvOrDefault("EMAIL_FROM", "noreply@county.go.ke"),
 		ResendFromName:      getEnvOrDefault("EMAIL_FROM_NAME", "County SME Management"),
-		EncryptionSecretKey: os.Getenv("ENCRYPTION_SECRET_KEY"),
-		BlindIndexKey:       os.Getenv("BLIND_INDEX_KEY"),
+		EncryptionSecretKey:    os.Getenv("ENCRYPTION_SECRET_KEY"),
+		BlindIndexKey:          os.Getenv("BLIND_INDEX_KEY"),
+		JWTExpirationHours:     getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
+		ShutdownTimeoutSeconds: getEnvAsInt("SHUTDOWN_TIMEOUT_SECONDS", 30),
 	}
 }
 
@@ -59,4 +64,11 @@ func getEnvOrDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+func getEnvAsInt(name string, defaultVal int) int {
+	valueStr := os.Getenv(name)
+	if value, err := strconv.Atoi(valueStr); err == nil {
+		return value
+	}
+	return defaultVal
 }

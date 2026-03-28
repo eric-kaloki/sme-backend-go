@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -32,16 +33,28 @@ func RespondJSON(w http.ResponseWriter, status int, payload interface{}) {
 
 // RespondError sends an ApiResponse formatted as an error.
 // In production, internal server errors (500+) are sanitized to prevent information leakage.
-func RespondError(w http.ResponseWriter, status int, message, errorDetail string) {
+func RespondError(w http.ResponseWriter, status int, message string, err error) {
+	errorDetail := ""
+	if err != nil {
+		errorDetail = err.Error()
+	}
+
+	// ALWAYS log the full internal error server-side for debugging
+	if err != nil {
+		log.Printf("[ERROR] Status: %d, Message: %s, Detail: %v", status, message, err)
+	}
+
 	displayError := errorDetail
 
 	// Simple sanitization for production to prevent DB/system leak
-	if os.Getenv("GO_ENV") == "production" && status >= http.StatusInternalServerError {
-		displayError = "An internal server error occurred. Please contact support if this persists."
-	} else if os.Getenv("GO_ENV") == "production" {
-		// Even for 400s, let's strip common DB driver prefixes just in case
-		if strings.Contains(displayError, "pq: ") || strings.Contains(displayError, "sql: ") {
-			displayError = "A database error occurred while processing the request."
+	if os.Getenv("GO_ENV") == "production" || os.Getenv("GO_ENV") == "staging" {
+		if status >= http.StatusInternalServerError {
+			displayError = "An internal server error occurred. Please contact support if this persists."
+		} else {
+			// Even for 400s, let's strip common DB driver prefixes just in case
+			if strings.Contains(displayError, "pq: ") || strings.Contains(displayError, "sql: ") {
+				displayError = "A database error occurred while processing the request."
+			}
 		}
 	}
 

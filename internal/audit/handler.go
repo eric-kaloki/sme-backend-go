@@ -38,7 +38,7 @@ func (h *Handler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Error retrieving audit logs", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Error retrieving audit logs", err)
 		return
 	}
 
@@ -71,7 +71,7 @@ func (h *Handler) ExportAuditLogs(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Error retrieving audit logs", err.Error())
+		common.RespondError(w, http.StatusInternalServerError, "Error retrieving audit logs", err)
 		return
 	}
 
@@ -113,7 +113,7 @@ func (h *Handler) LogExport(w http.ResponseWriter, r *http.Request) {
 
 	var req LogExportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.RespondError(w, http.StatusBadRequest, "Invalid payload", err.Error())
+		common.RespondError(w, http.StatusBadRequest, "Invalid payload", err)
 		return
 	}
 

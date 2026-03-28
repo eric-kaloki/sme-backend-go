@@ -21,10 +21,10 @@ type TokenProvider struct {
 	jwtExpiration time.Duration
 }
 
-func NewTokenProvider(secret string) *TokenProvider {
+func NewTokenProvider(secret string, expirationHours int) *TokenProvider {
 	return &TokenProvider{
 		secretKey:     []byte(secret),
-		jwtExpiration: 24 * time.Hour, // Hardcoded for now, matches Java
+		jwtExpiration: time.Duration(expirationHours) * time.Hour,
 	}
 }
 
