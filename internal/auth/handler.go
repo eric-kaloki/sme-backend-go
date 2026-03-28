@@ -206,7 +206,8 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		common.RespondError(w, http.StatusInternalServerError, "Failed to generate token", err)
 		return
 	}
-	resetLink := "http://localhost:8081/reset-password?token=" + token
+	// resetLink := "http://localhost:8081/reset-password?token=" + token
+	resetLink := "https://machakoscountysmes-new.vercel.app/reset-password?token=" + token
 	h.mailer.SendPasswordReset(u.Email, u.FirstName, resetLink)
 	common.RespondSuccess(w, http.StatusOK, "If that email exists, a reset link has been sent.", nil)
 }
