@@ -72,6 +72,10 @@ func main() {
 		r.Post("/logout", authHandler.Logout)
 		r.Post("/forgot-password", authHandler.ForgotPassword)
 		r.Post("/reset-password", authHandler.ResetPassword)
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireAuth(jwtProvider))
+			r.Post("/change-password", authHandler.ChangePassword)
+		})
 	})
 
 	// Private routes
@@ -118,10 +122,6 @@ func main() {
 	auditHandler := audit.NewHandler(auditRepo)
 	apiRouter.Route("/audit", func(r chi.Router) {
 		r.Post("/log-export", auditHandler.LogExport)
-	})
-	// Private Auth Endpoints (Requires JWT)
-	apiRouter.Route("/auth", func(r chi.Router) {
-		r.Post("/change-password", authHandler.ChangePassword)
 	})
 
 	apiRouter.Route("/audit-logs", func(r chi.Router) {

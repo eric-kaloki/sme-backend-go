@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 	"github.com/machakos/sme-backend-go/internal/audit"
@@ -11,7 +12,6 @@ import (
 	"github.com/machakos/sme-backend-go/pkg/jwt"
 	"github.com/machakos/sme-backend-go/pkg/resend"
 	"net/http"
-	"errors"
 	"time"
 )
 
@@ -258,8 +258,8 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 type ChangePasswordRequest struct {
-	OldPassword string `json:"oldPassword" validate:"required"`
-	NewPassword string `json:"newPassword" validate:"required,min=8"`
+	CurrentPassword string `json:"currentPassword" validate:"required"`
+	NewPassword     string `json:"newPassword" validate:"required,min=8"`
 }
 
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
@@ -284,7 +284,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	match, err := argon2.CheckPassword(req.OldPassword, u.Password)
+	match, err := argon2.CheckPassword(req.CurrentPassword, u.Password)
 	if err != nil || !match {
 		common.RespondError(w, http.StatusUnauthorized, "Incorrect old password", nil)
 		return

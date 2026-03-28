@@ -19,14 +19,14 @@ type Handler struct {
 
 func NewHandler(service *Service) *Handler {
 	v := validator.New()
-	
+
 	// Complex regexes are better handled as named validators to avoid tag parsing issues with pipes (|)
 	v.RegisterValidation("kenya_phone", func(fl validator.FieldLevel) bool {
 		phone := fl.Field().String()
 		re := regexp.MustCompile(`^(01|07)\d{8}|(2547|2541)\d{8}$`)
 		return re.MatchString(phone)
 	})
-	
+
 	v.RegisterValidation("kenya_id", func(fl validator.FieldLevel) bool {
 		id := fl.Field().String()
 		re := regexp.MustCompile(`^\d{7,8}$`)
