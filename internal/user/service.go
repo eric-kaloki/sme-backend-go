@@ -13,9 +13,9 @@ import (
 )
 
 var (
-	ErrForbidden     = errors.New("forbidden")
-	ErrConflict      = errors.New("conflict")
-	ErrBadRequest    = errors.New("bad request")
+	ErrForbidden  = errors.New("forbidden")
+	ErrConflict   = errors.New("conflict")
+	ErrBadRequest = errors.New("bad request")
 )
 
 var validRoles = map[string]bool{
@@ -353,7 +353,7 @@ func (s *Service) ResetPassword(id string, resetter *User) error {
 	})
 
 	// Assuming we want to email the password
-	// In Java the generic email service has sendPasswordReset, we'll reuse SendUserCredentials for simplicity here 
+	// In Java the generic email service has sendPasswordReset, we'll reuse SendUserCredentials for simplicity here
 	// or we can just add SendPasswordReset to mailer.
 	s.mailer.SendUserCredentials(u.Email, u.FirstName, u.LastName, u.Username, tempPassword, u.Role)
 	return nil

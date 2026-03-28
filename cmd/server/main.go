@@ -65,17 +65,17 @@ func main() {
 	// Private routes
 	apiRouter := chi.NewRouter()
 	apiRouter.Use(auth.RequireAuth(jwtProvider))
-	
+
 	// Shared Repositories
 	auditRepo := audit.NewRepository(db)
 
 	// User Routes
 	userService := user.NewService(userRepo, auditRepo, resend.NewMailer(cfg.ResendAPIKey, cfg.ResendEnabled, cfg.ResendFromEmail, cfg.ResendFromName))
 	userHandler := user.NewHandler(userService)
-	
+
 	apiRouter.Route("/users", func(r chi.Router) {
-		r.Post("/", userHandler.CreateUser)       // POST /api/users
-		r.Get("/", userHandler.GetAllUsers)       // GET /api/users
+		r.Post("/", userHandler.CreateUser) // POST /api/users
+		r.Get("/", userHandler.GetAllUsers) // GET /api/users
 		r.Get("/{id}", userHandler.GetUserById)
 		r.Put("/{id}", userHandler.UpdateUser)
 		r.Post("/{id}/promote", userHandler.PromoteUser)
@@ -88,10 +88,12 @@ func main() {
 	smeRepo := sme.NewRepository(db)
 	smeService := sme.NewService(smeRepo, auditRepo, cfg.EncryptionSecretKey, cfg.BlindIndexKey)
 	smeHandler := sme.NewHandler(smeService)
-	
+
 	apiRouter.Route("/sme", func(r chi.Router) {
 		r.Post("/", smeHandler.CreateSME)       // POST /api/sme
 		r.Get("/", smeHandler.GetAllSMEs)       // GET /api/sme
+		r.Delete("/{id}", smeHandler.DeleteSME) // DELETE /api/sme/{id}
+		r.Put("/{id}", smeHandler.UpdateSME)    // PUT /api/sme/{id}
 		r.Get("/export", smeHandler.ExportSMEs) // GET /api/sme/export
 
 		// Analytics & Filters

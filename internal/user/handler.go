@@ -60,7 +60,9 @@ func mapToResponse(user *User) UserResponse {
 
 func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	creator := common.GetUserFromContext(r.Context())
-	if creator == nil { return }
+	if creator == nil {
+		return
+	}
 	var req CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		common.RespondError(w, http.StatusBadRequest, "Invalid payload", err.Error())
@@ -78,12 +80,16 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	reqUser := common.GetUserFromContext(r.Context())
-	if reqUser == nil { return }
-	
+	if reqUser == nil {
+		return
+	}
+
 	q := r.URL.Query()
 	page, _ := strconv.Atoi(q.Get("page"))
 	size, err := strconv.Atoi(q.Get("size"))
-	if err != nil || size == 0 { size = 10 }
+	if err != nil || size == 0 {
+		size = 10
+	}
 
 	users, total, err := h.service.GetAllUsers(q.Get("search"), q.Get("role"), q.Get("status"), q.Get("sortBy"), q.Get("sortDir"), page, size, &User{ID: reqUser.ID, Role: reqUser.Role})
 	if err != nil {
@@ -92,10 +98,14 @@ func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	responses := make([]UserResponse, len(users))
-	for i, u := range users { responses[i] = mapToResponse(&u) }
+	for i, u := range users {
+		responses[i] = mapToResponse(&u)
+	}
 
 	totalPages := total / size
-	if total%size > 0 { totalPages++ }
+	if total%size > 0 {
+		totalPages++
+	}
 
 	common.RespondSuccess(w, http.StatusOK, "Users retrieved", map[string]interface{}{
 		"items": responses, "page": page, "size": size, "totalElements": total, "totalPages": totalPages, "hasNext": page < totalPages-1, "hasPrevious": page > 0,
@@ -129,7 +139,9 @@ func (h *Handler) PromoteUser(w http.ResponseWriter, r *http.Request) {
 	reqUser := common.GetUserFromContext(r.Context())
 	id := chi.URLParam(r, "id")
 	var req RoleChangeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil { return }
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return
+	}
 	u, err := h.service.PromoteUser(id, req.NewRole, &User{ID: reqUser.ID, Role: reqUser.Role})
 	h.handleServiceError(w, err, "User promoted", u, http.StatusOK)
 }
@@ -138,7 +150,9 @@ func (h *Handler) DemoteUser(w http.ResponseWriter, r *http.Request) {
 	reqUser := common.GetUserFromContext(r.Context())
 	id := chi.URLParam(r, "id")
 	var req RoleChangeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil { return }
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return
+	}
 	u, err := h.service.DemoteUser(id, req.NewRole, &User{ID: reqUser.ID, Role: reqUser.Role})
 	h.handleServiceError(w, err, "User demoted", u, http.StatusOK)
 }
@@ -167,10 +181,22 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleServiceError(w http.ResponseWriter, err error, successMsg string, data *User, status int) {
 	if err != nil {
-		if err == ErrForbidden { common.RespondError(w, http.StatusForbidden, "Forbidden", "") ; return }
-		if err == ErrUserNotFound { common.RespondError(w, http.StatusNotFound, "User not found", "") ; return }
-		if err == ErrConflict { common.RespondError(w, http.StatusConflict, "Conflict", "") ; return }
-		if err == ErrBadRequest { common.RespondError(w, http.StatusBadRequest, "Bad Request", "") ; return }
+		if err == ErrForbidden {
+			common.RespondError(w, http.StatusForbidden, "Forbidden", "")
+			return
+		}
+		if err == ErrUserNotFound {
+			common.RespondError(w, http.StatusNotFound, "User not found", "")
+			return
+		}
+		if err == ErrConflict {
+			common.RespondError(w, http.StatusConflict, "Conflict", "")
+			return
+		}
+		if err == ErrBadRequest {
+			common.RespondError(w, http.StatusBadRequest, "Bad Request", "")
+			return
+		}
 		common.RespondError(w, http.StatusInternalServerError, "Internal Error", err.Error())
 		return
 	}

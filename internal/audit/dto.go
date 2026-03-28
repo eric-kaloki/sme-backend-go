@@ -38,12 +38,12 @@ type AuditLogResponse struct {
 	UpdatedAt   *time.Time             `json:"updatedAt" db:"updated_at"`
 
 	// Flattened from join
-	UserID      *string                `json:"userId" db:"user_id"`
-	FirstName   *string                `json:"-" db:"user_first_name"`
-	LastName    *string                `json:"-" db:"user_last_name"`
-	Email       *string                `json:"-" db:"user_email"`
+	UserID    *string `json:"userId" db:"user_id"`
+	FirstName *string `json:"-" db:"user_first_name"`
+	LastName  *string `json:"-" db:"user_last_name"`
+	Email     *string `json:"-" db:"user_email"`
 
-	User        *UserMin               `json:"user,omitempty"`
+	User *UserMin `json:"user,omitempty"`
 }
 
 func mapToResponse(log *AuditLogResponse) *AuditLogResponse {
@@ -64,9 +64,15 @@ func mapToResponse(log *AuditLogResponse) *AuditLogResponse {
 		first := ""
 		last := ""
 		email := ""
-		if log.FirstName != nil { first = *log.FirstName }
-		if log.LastName != nil { last = *log.LastName }
-		if log.Email != nil { email = *log.Email }
+		if log.FirstName != nil {
+			first = *log.FirstName
+		}
+		if log.LastName != nil {
+			last = *log.LastName
+		}
+		if log.Email != nil {
+			email = *log.Email
+		}
 
 		log.User = &UserMin{
 			ID:        *log.UserID,

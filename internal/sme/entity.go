@@ -30,9 +30,9 @@ type SME struct {
 	UpdatedByID          string     `db:"updated_by_id" json:"updatedById"`
 	CreatedAt            time.Time  `db:"created_at" json:"createdAt"`
 	UpdatedAt            *time.Time `db:"updated_at" json:"updatedAt,omitempty"`
-	
-	CreatorFirstName     string     `db:"creator_first_name" json:"-"`
-	CreatorLastName      string     `db:"creator_last_name" json:"-"`
-	UpdaterFirstName     string     `db:"updater_first_name" json:"-"`
-	UpdaterLastName      string     `db:"updater_last_name" json:"-"`
+
+	CreatorFirstName string `db:"creator_first_name" json:"-"`
+	CreatorLastName  string `db:"creator_last_name" json:"-"`
+	UpdaterFirstName string `db:"updater_first_name" json:"-"`
+	UpdaterLastName  string `db:"updater_last_name" json:"-"`
 }

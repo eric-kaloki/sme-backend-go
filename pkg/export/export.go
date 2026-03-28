@@ -40,7 +40,7 @@ func WriteStackedCSV(w io.Writer, sheets []SheetData) error {
 		if len(sheet.Headers) == 0 && len(sheet.Rows) == 0 {
 			continue
 		}
-		
+
 		// Title line
 		if err := writer.Write([]string{sheet.Name}); err != nil {
 			return err

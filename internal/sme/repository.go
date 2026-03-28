@@ -30,6 +30,21 @@ func (r *Repository) FindByID(id string) (*SME, error) {
 	return &sme, nil
 }
 
+func (r *Repository) Delete(id string) error {
+	result, err := r.db.Exec("DELETE FROM smes WHERE id = $1", id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (r *Repository) Create(s *SME) error {
 	query := `
 		INSERT INTO smes (
@@ -68,7 +83,7 @@ func (r *Repository) SearchSMEs(emailHash, phoneHash, status, category, subCount
 		WHERE 1=1
 	`
 	countQuery := "SELECT COUNT(*) FROM smes s WHERE 1=1"
-	
+
 	args := []interface{}{}
 	argId := 1
 
@@ -144,7 +159,7 @@ func (r *Repository) SearchSMEs(emailHash, phoneHash, status, category, subCount
 	if col, ok := allowedSorts[sortBy]; ok {
 		dbSortCol = "s." + col
 	}
-	
+
 	dir := "DESC"
 	if strings.ToUpper(sortDir) == "ASC" {
 		dir = "ASC"
@@ -164,7 +179,7 @@ func (r *Repository) SearchSMEs(emailHash, phoneHash, status, category, subCount
 
 func (r *Repository) GetStatsOverview(subCounty, ward string) (SmeStatsOverviewResponse, error) {
 	var response SmeStatsOverviewResponse
-	
+
 	whereClause := "1=1"
 	args := []interface{}{}
 	argId := 1
@@ -193,9 +208,11 @@ func (r *Repository) GetStatsOverview(subCounty, ward string) (SmeStatsOverviewR
 			COUNT(*) FILTER (WHERE status = 'PENDING') as pending,
 			COUNT(*) FILTER (WHERE status = 'INACTIVE') as inactive
 		FROM smes WHERE %s`, whereClause)
-		
+
 		err := r.db.Get(&response.Overview, r.db.Rebind(q), args...)
-		if err != nil { errs <- err }
+		if err != nil {
+			errs <- err
+		}
 	}()
 
 	// Category Count
@@ -204,7 +221,9 @@ func (r *Repository) GetStatsOverview(subCounty, ward string) (SmeStatsOverviewR
 		defer wg.Done()
 		q := fmt.Sprintf("SELECT category, COUNT(*) as count FROM smes WHERE %s GROUP BY category ORDER BY count DESC", whereClause)
 		err := r.db.Select(&response.ByCategory, r.db.Rebind(q), args...)
-		if err != nil { errs <- err }
+		if err != nil {
+			errs <- err
+		}
 	}()
 
 	// Gender Count
@@ -213,7 +232,9 @@ func (r *Repository) GetStatsOverview(subCounty, ward string) (SmeStatsOverviewR
 		defer wg.Done()
 		q := fmt.Sprintf("SELECT gender, COUNT(*) as count FROM smes WHERE %s GROUP BY gender", whereClause)
 		err := r.db.Select(&response.ByGender, r.db.Rebind(q), args...)
-		if err != nil { errs <- err }
+		if err != nil {
+			errs <- err
+		}
 	}()
 
 	// PWD Count
@@ -222,7 +243,9 @@ func (r *Repository) GetStatsOverview(subCounty, ward string) (SmeStatsOverviewR
 		defer wg.Done()
 		q := fmt.Sprintf("SELECT pwd, COUNT(*) as count FROM smes WHERE %s GROUP BY pwd", whereClause)
 		err := r.db.Select(&response.ByPWD, r.db.Rebind(q), args...)
-		if err != nil { errs <- err }
+		if err != nil {
+			errs <- err
+		}
 	}()
 
 	// SubCounty / Ward location count
@@ -231,7 +254,9 @@ func (r *Repository) GetStatsOverview(subCounty, ward string) (SmeStatsOverviewR
 		defer wg.Done()
 		q := fmt.Sprintf("SELECT sub_county, COUNT(*) as count FROM smes WHERE %s GROUP BY sub_county ORDER BY count DESC LIMIT 10", whereClause)
 		err := r.db.Select(&response.BySubCounty, r.db.Rebind(q), args...)
-		if err != nil { errs <- err }
+		if err != nil {
+			errs <- err
+		}
 	}()
 
 	wg.Wait()
@@ -244,10 +269,18 @@ func (r *Repository) GetStatsOverview(subCounty, ward string) (SmeStatsOverviewR
 	}
 
 	// Make sure zero-results initialize to empty JSON lists instead of null
-	if response.ByCategory == nil { response.ByCategory = []CategoryCount{} }
-	if response.ByGender == nil { response.ByGender = []GenderCount{} }
-	if response.ByPWD == nil { response.ByPWD = []PwdCount{} }
-	if response.BySubCounty == nil { response.BySubCounty = []SubCountyCount{} }
+	if response.ByCategory == nil {
+		response.ByCategory = []CategoryCount{}
+	}
+	if response.ByGender == nil {
+		response.ByGender = []GenderCount{}
+	}
+	if response.ByPWD == nil {
+		response.ByPWD = []PwdCount{}
+	}
+	if response.BySubCounty == nil {
+		response.BySubCounty = []SubCountyCount{}
+	}
 
 	return response, nil
 }
@@ -257,7 +290,7 @@ func (r *Repository) GetDistinctList(column string) ([]string, error) {
 	if !allowedCols[column] {
 		return nil, fmt.Errorf("invalid column: %s", column)
 	}
-	
+
 	var list []string
 	query := fmt.Sprintf("SELECT DISTINCT %s FROM smes WHERE %s IS NOT NULL ORDER BY %s ASC", column, column, column)
 	err := r.db.Select(&list, query)
@@ -265,4 +298,25 @@ func (r *Repository) GetDistinctList(column string) ([]string, error) {
 		list = []string{}
 	}
 	return list, err
+}
+
+func (r *Repository) Update(s *SME) error {
+	query := `
+		UPDATE smes SET
+			business_name = $2, owner_name = $3, phone = $4, email = $5, id_number = $6,
+			business_name_hash = $7, owner_name_hash = $8, phone_hash = $9, email_hash = $10, id_number_hash = $11,
+			business_permit_number = $12, gender = $13, category = $14, sub_category = $15, pwd = $16,
+			sub_county = $17, ward = $18, market_town = $19, business_address = $20, status = $21,
+			updated_by_id = $22, updated_at = NOW()
+		WHERE id = $1
+		RETURNING updated_at
+	`
+	return r.db.QueryRow(
+		query,
+		s.ID, s.BusinessName, s.OwnerName, s.Phone, s.Email, s.IDNumber,
+		s.BusinessNameHash, s.OwnerNameHash, s.PhoneHash, s.EmailHash, s.IDNumberHash,
+		s.BusinessPermitNumber, s.Gender, s.Category, s.SubCategory, s.PWD,
+		s.SubCounty, s.Ward, s.MarketTown, s.BusinessAddress, s.Status,
+		s.UpdatedByID,
+	).Scan(&s.UpdatedAt)
 }

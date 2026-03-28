@@ -8,14 +8,14 @@ import (
 )
 
 type Config struct {
-	DatabaseURL        string
-	JWTSecret          string
-	Port               string
-	Environment        string
-	ResendAPIKey       string
-	ResendEnabled      bool
-	ResendFromEmail 	string
-	ResendFromName  	string
+	DatabaseURL         string
+	JWTSecret           string
+	Port                string
+	Environment         string
+	ResendAPIKey        string
+	ResendEnabled       bool
+	ResendFromEmail     string
+	ResendFromName      string
 	EncryptionSecretKey string
 	BlindIndexKey       string
 }
@@ -41,11 +41,11 @@ func LoadConfig() *Config {
 	}
 
 	return &Config{
-		DatabaseURL:     dbURL,
-		JWTSecret:       jwtSecret,
-		Port:            port,
-		Environment:     getEnvOrDefault("GO_ENV", "development"),
-		ResendAPIKey:    os.Getenv("RESEND_API_KEY"),
+		DatabaseURL:         dbURL,
+		JWTSecret:           jwtSecret,
+		Port:                port,
+		Environment:         getEnvOrDefault("GO_ENV", "development"),
+		ResendAPIKey:        os.Getenv("RESEND_API_KEY"),
 		ResendEnabled:       os.Getenv("RESEND_ENABLED") == "true",
 		ResendFromEmail:     getEnvOrDefault("EMAIL_FROM", "noreply@county.go.ke"),
 		ResendFromName:      getEnvOrDefault("EMAIL_FROM_NAME", "County SME Management"),

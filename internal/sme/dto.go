@@ -18,6 +18,7 @@ type SmeRequest struct {
 	Ward                 string  `json:"ward" validate:"required"`
 	MarketTown           *string `json:"marketTown,omitempty"`
 	BusinessAddress      string  `json:"businessAddress" validate:"required"`
+	Status               string  `json:"status,omitempty"`
 }
 
 type SmeResponse struct {
@@ -78,8 +79,8 @@ func mapToResponse(s *SME) SmeResponse {
 			FirstName: s.UpdaterFirstName,
 			LastName:  s.UpdaterLastName,
 		},
-		CreatedAt:            s.CreatedAt,
-		UpdatedAt:            s.UpdatedAt,
+		CreatedAt: s.CreatedAt,
+		UpdatedAt: s.UpdatedAt,
 	}
 }
 

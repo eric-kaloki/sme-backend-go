@@ -6,7 +6,7 @@ import (
 )
 
 // Note: To test exactly against Java, we need a 32-byte Base64 key.
-// Let's use a standard test key. 
+// Let's use a standard test key.
 // Java: openssl rand -base64 32
 const testKeyBase64 = "1qaz2wsx3edc4rfv5tgb6yhn7ujm8ik9ol0p/QWERTY="
 const testBlindIndexKey = "super_secret_blind_index_test_key"
@@ -57,7 +57,7 @@ func TestBlindIndexNormalization(t *testing.T) {
 func TestJavaCompatibility(t *testing.T) {
 	// Let's simulate decrypting something we already know the format of
 	// The ciphertext must contain [12 byte IV] + [encrypted data] + [16 byte auth tag]
-	
+
 	// Test data format is proven if TestEncryptionDecryptionConsistency passes since it uses
 	// the literal exact GCM append byte strategy mapped from Java.
 }

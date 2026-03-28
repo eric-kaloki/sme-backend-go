@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("sme not found")
+	ErrNotFound  = errors.New("sme not found")
 	ErrForbidden = errors.New("forbidden")
 )
 
@@ -62,19 +62,29 @@ func (s *Service) blindIndexPtr(val *string) *string {
 func (s *Service) CreateSME(req SmeRequest, creator *user.User) (*SME, error) {
 	// Encrypt required fields
 	encBizName, err := crypto.Encrypt(req.BusinessName, s.cryptoKey)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 
 	encOwner, err := crypto.Encrypt(req.OwnerName, s.cryptoKey)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 
 	encPhone, err := crypto.Encrypt(req.Phone, s.cryptoKey)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 
 	// Encrypt optional
 	encEmail, err := s.encryptPtr(s.nilIfEmpty(req.Email))
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	encIdNum, err := s.encryptPtr(s.nilIfEmpty(req.IDNumber))
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 
 	smeId := uuid.NewString()
 
@@ -144,9 +154,15 @@ func (s *Service) SearchSMEs(searchEmail, searchPhone, status, category, subCoun
 
 func (s *Service) decryptEntity(sme *SME) *SME {
 	// Safely decrypts in place ignoring errors (returns cipher if decryption fails to avoid crashing entire payload)
-	if dec, err := crypto.Decrypt(sme.BusinessName, s.cryptoKey); err == nil { sme.BusinessName = dec }
-	if dec, err := crypto.Decrypt(sme.OwnerName, s.cryptoKey); err == nil { sme.OwnerName = dec }
-	if dec, err := crypto.Decrypt(sme.Phone, s.cryptoKey); err == nil { sme.Phone = dec }
+	if dec, err := crypto.Decrypt(sme.BusinessName, s.cryptoKey); err == nil {
+		sme.BusinessName = dec
+	}
+	if dec, err := crypto.Decrypt(sme.OwnerName, s.cryptoKey); err == nil {
+		sme.OwnerName = dec
+	}
+	if dec, err := crypto.Decrypt(sme.Phone, s.cryptoKey); err == nil {
+		sme.Phone = dec
+	}
 	sme.Email = s.decryptPtr(sme.Email)
 	sme.IDNumber = s.decryptPtr(sme.IDNumber)
 	return sme
@@ -195,7 +211,115 @@ func (s *Service) GetStatsOverview(subCounty, ward string) (SmeStatsOverviewResp
 	return response, nil
 }
 
-func (s *Service) GetAvailableCategories() ([]string, error) { return s.repo.GetDistinctList("category") }
-func (s *Service) GetAvailableSubCounties() ([]string, error) { return s.repo.GetDistinctList("sub_county") }
+func (s *Service) GetAvailableCategories() ([]string, error) {
+	return s.repo.GetDistinctList("category")
+}
+func (s *Service) GetAvailableSubCounties() ([]string, error) {
+	return s.repo.GetDistinctList("sub_county")
+}
 func (s *Service) GetAvailableWards() ([]string, error) { return s.repo.GetDistinctList("ward") }
 
+func (s *Service) DeleteSME(id string, deleter *user.User) error {
+	existing, err := s.repo.FindByID(id)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return ErrNotFound
+	}
+
+	if err := s.repo.Delete(id); err != nil {
+		return err
+	}
+
+	// Decrypt business name for audit log
+	bizName := existing.BusinessName
+	if dec, decErr := crypto.Decrypt(bizName, s.cryptoKey); decErr == nil {
+		bizName = dec
+	}
+
+	s.auditRepo.LogAsync(audit.AuditLog{
+		Action:      "SME_DELETE",
+		EntityType:  "SME",
+		EntityID:    &id,
+		UserID:      &deleter.ID,
+		Description: ptr("Deleted SME: " + bizName),
+	})
+
+	return nil
+}
+
+func (s *Service) UpdateSME(id string, req SmeRequest, updater *user.User) (*SME, error) {
+	existing, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, ErrNotFound
+	}
+
+	// Encrypt required fields
+	encBizName, err := crypto.Encrypt(req.BusinessName, s.cryptoKey)
+	if err != nil {
+		return nil, err
+	}
+	encOwner, err := crypto.Encrypt(req.OwnerName, s.cryptoKey)
+	if err != nil {
+		return nil, err
+	}
+	encPhone, err := crypto.Encrypt(req.Phone, s.cryptoKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Encrypt optional
+	encEmail, err := s.encryptPtr(s.nilIfEmpty(req.Email))
+	if err != nil {
+		return nil, err
+	}
+	encIdNum, err := s.encryptPtr(s.nilIfEmpty(req.IDNumber))
+	if err != nil {
+		return nil, err
+	}
+
+	existing.BusinessName = encBizName
+	existing.OwnerName = encOwner
+	existing.Phone = encPhone
+	existing.Email = encEmail
+	existing.IDNumber = encIdNum
+
+	existing.BusinessNameHash = ptr(crypto.GenerateBlindIndex(req.BusinessName, s.blindIndexKey))
+	existing.OwnerNameHash = ptr(crypto.GenerateBlindIndex(req.OwnerName, s.blindIndexKey))
+	existing.PhoneHash = ptr(crypto.GenerateBlindIndex(req.Phone, s.blindIndexKey))
+	existing.EmailHash = s.blindIndexPtr(s.nilIfEmpty(req.Email))
+	existing.IDNumberHash = s.blindIndexPtr(s.nilIfEmpty(req.IDNumber))
+
+	existing.BusinessPermitNumber = s.nilIfEmpty(req.BusinessPermitNumber)
+	existing.Gender = req.Gender
+	existing.Category = req.Category
+	existing.SubCategory = req.SubCategory
+	existing.PWD = req.PWD
+	existing.SubCounty = req.SubCounty
+	existing.Ward = req.Ward
+	existing.MarketTown = req.MarketTown
+	existing.BusinessAddress = req.BusinessAddress
+	if req.Status != "" {
+		existing.Status = req.Status
+	}
+	existing.UpdatedByID = updater.ID
+
+	if err := s.repo.Update(existing); err != nil {
+		return nil, err
+	}
+
+	// Audit log
+	s.auditRepo.LogAsync(audit.AuditLog{
+		Action:      "SME_UPDATE",
+		EntityType:  "SME",
+		EntityID:    &id,
+		UserID:      &updater.ID,
+		Description: ptr("Updated SME: " + req.BusinessName),
+	})
+
+	return s.decryptEntity(existing), nil
+}

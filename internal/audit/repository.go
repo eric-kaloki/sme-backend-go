@@ -39,7 +39,7 @@ func (r *Repository) SearchAuditLogs(action, entityType, userId, entityId, searc
 		WHERE 1=1
 	`
 	countQuery := "SELECT COUNT(*) FROM audit_logs a WHERE 1=1"
-	
+
 	args := []interface{}{}
 	argId := 1
 
@@ -78,11 +78,17 @@ func (r *Repository) SearchAuditLogs(action, entityType, userId, entityId, searc
 	}
 
 	dbSortCol := "a.created_at"
-	if sortBy == "action" { dbSortCol = "a.action" }
-	if sortBy == "entityType" { dbSortCol = "a.entity_type" }
-	
+	if sortBy == "action" {
+		dbSortCol = "a.action"
+	}
+	if sortBy == "entityType" {
+		dbSortCol = "a.entity_type"
+	}
+
 	dir := "DESC"
-	if sortDir == "asc" { dir = "ASC" }
+	if sortDir == "asc" {
+		dir = "ASC"
+	}
 
 	query += fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", dbSortCol, dir, argId, argId+1)
 	args = append(args, size, page*size)

@@ -22,11 +22,15 @@ func NewHandler(repo *Repository) *Handler {
 func (h *Handler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	page, _ := strconv.Atoi(q.Get("page"))
-	
+
 	sizeStr := q.Get("size")
-	if sizeStr == "" { sizeStr = q.Get("limit") }
+	if sizeStr == "" {
+		sizeStr = q.Get("limit")
+	}
 	size, err := strconv.Atoi(sizeStr)
-	if err != nil || size == 0 { size = 20 }
+	if err != nil || size == 0 {
+		size = 20
+	}
 
 	logs, total, err := h.repo.SearchAuditLogs(
 		q.Get("action"), q.Get("entityType"), q.Get("userId"), q.Get("entityId"),
@@ -44,7 +48,9 @@ func (h *Handler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	totalPages := total / size
-	if total%size > 0 { totalPages++ }
+	if total%size > 0 {
+		totalPages++
+	}
 
 	common.RespondSuccess(w, http.StatusOK, "Audit logs retrieved successfully", map[string]interface{}{
 		"content": logs, "items": logs, "page": page, "size": size, "totalElements": total, "totalPages": totalPages,
@@ -55,7 +61,9 @@ func (h *Handler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ExportAuditLogs(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	format := q.Get("format")
-	if format == "" { format = "csv" }
+	if format == "" {
+		format = "csv"
+	}
 
 	logs, _, err := h.repo.SearchAuditLogs(
 		q.Get("action"), q.Get("entityType"), q.Get("userId"), q.Get("entityId"),
@@ -99,7 +107,9 @@ func (h *Handler) ExportAuditLogs(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) LogExport(w http.ResponseWriter, r *http.Request) {
 	reqUser := common.GetUserFromContext(r.Context())
-	if reqUser == nil { return }
+	if reqUser == nil {
+		return
+	}
 
 	var req LogExportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -112,7 +122,7 @@ func (h *Handler) LogExport(w http.ResponseWriter, r *http.Request) {
 		"recordCount": req.RecordCount,
 		"filters":     req.Filters,
 	}
-	
+
 	metaJSON, _ := json.Marshal(metadata)
 	metaStr := string(metaJSON)
 

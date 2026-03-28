@@ -97,7 +97,7 @@ func (r *Repository) Update(user *User) error {
 func (r *Repository) SearchUsers(search, role, status, sortBy, sortDir string, page, size int) ([]User, int, error) {
 	query := "SELECT * FROM users WHERE status != 'DELETED'"
 	countQuery := "SELECT COUNT(*) FROM users WHERE status != 'DELETED'"
-	
+
 	args := []interface{}{}
 	argId := 1
 
@@ -145,7 +145,7 @@ func (r *Repository) SearchUsers(search, role, status, sortBy, sortDir string, p
 	if col, ok := allowedSorts[sortBy]; ok {
 		dbSortCol = col
 	}
-	
+
 	dir := "DESC"
 	if strings.ToUpper(sortDir) == "ASC" {
 		dir = "ASC"

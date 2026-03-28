@@ -13,9 +13,9 @@ import (
 )
 
 var (
-	ErrInvalidBase64 = errors.New("invalid base64 ciphertext")
+	ErrInvalidBase64      = errors.New("invalid base64 ciphertext")
 	ErrCiphertextTooShort = errors.New("ciphertext too short")
-	ErrDecryptionFailed = errors.New("decryption failed or invalid key")
+	ErrDecryptionFailed   = errors.New("decryption failed or invalid key")
 )
 
 const (

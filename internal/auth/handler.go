@@ -104,7 +104,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	response := LoginResponse{
 		Token:                  tokenString,
-		RefreshToken:           tokenString, // TODO: different TTL for refresh token
+		RefreshToken:           tokenString,  // TODO: different TTL for refresh token
 		SessionTimeout:         24 * 60 * 60, // 24 hours in seconds
 		RequiresPasswordChange: u.IsTemporaryPassword,
 		Admin: UserResponse{
