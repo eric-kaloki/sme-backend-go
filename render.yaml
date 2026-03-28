@@ -1,0 +1,52 @@
+# ==============================================================================
+# Render Blueprint — Machakos SME Backend (Go Version)
+# Deploy: Push to GitHub → Render Dashboard → New Blueprint → Select Repo
+# Docs:  https://docs.render.com/blueprint-spec
+# ==============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Go Web Service (Docker runtime)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: sme-backend-go
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    envVars:
+      # ── Server ────────────────────────────────────────────────────────
+      - key: PORT
+        value: 8082
+      # ── Database ─────────────────────────────────────────────────────
+      # Free tier has NO private networking — set the EXTERNAL Database URL
+      # manually in the Render Dashboard after deploy.
+      - key: DATABASE_URL
+        sync: false
+      # ── CORS ──────────────────────────────────────────────────────────
+      - key: ALLOWED_ORIGINS
+        value: https://machakoscountysmes-new.vercel.app
+      # ── Frontend URL (for password-reset emails etc.) ─────────────────
+      - key: FRONTEND_URL
+        value: https://machakoscountysmes-new.vercel.app
+      # ── Email (Resend) ────────────────────────────────────────────────
+      - key: RESEND_ENABLED
+        value: "true"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: noreply@salesa.tech
+      - key: EMAIL_FROM_NAME
+        value: Machakos County SME Management
+      # ── Secrets (set in Render Dashboard after first deploy) ──────────
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_SECRET_KEY
+        sync: false
+      - key: BLIND_INDEX_KEY
+        sync: false
+
+# ---------------------------------------------------------------------------
+# Note: You can optionally retain the Render Managed PostgreSQL Database block 
+# here if this repo will manage the Database instance itself!
+# ---------------------------------------------------------------------------
