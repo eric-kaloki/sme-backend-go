@@ -52,7 +52,7 @@ func main() {
 
 	// Fix #3: In-memory revocation store. Replace with Redis implementation
 	// if the service is ever scaled to multiple instances.
-	revocationStore := jwt.NewRevocationStore()
+	revocationStore := jwt.NewDbRevocationStore(db)
 
 	// 3. Init handlers
 	mailer := resend.NewMailer(cfg.ResendAPIKey, cfg.ResendEnabled, cfg.ResendFromEmail, cfg.ResendFromName)
@@ -82,7 +82,7 @@ func main() {
 	}))
 
 	// Health check — unauthenticated, required by Render
-	r.Get("/api/health", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"UP"}`))
 	})

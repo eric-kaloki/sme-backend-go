@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
@@ -316,8 +317,8 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	if actualPassword == "" {
 		actualPassword = req.Password
 	}
-	if len(actualPassword) < 8 {
-		common.RespondError(w, http.StatusBadRequest, "Password must be at least 8 characters", nil)
+	if err := h.validatePassword(actualPassword); err != nil {
+		common.RespondError(w, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -363,6 +364,10 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.validate.Struct(req); err != nil {
 		common.RespondError(w, http.StatusBadRequest, "Validation error", err)
+		return
+	}
+	if err := h.validatePassword(req.NewPassword); err != nil {
+		common.RespondError(w, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -419,4 +424,29 @@ func (h *Handler) logFailedLoginUser(r *http.Request, u *user.User) {
 		IPAddress:   h.ptr(r.RemoteAddr),
 		UserAgent:   h.ptr(r.Header.Get("User-Agent")),
 	})
+}
+
+func (h *Handler) validatePassword(password string) error {
+	if len(password) < 10 {
+		return errors.New("password must be at least 10 characters long")
+	}
+	var (
+		hasUpper   = false
+		hasDigit   = false
+		hasSpecial = false
+	)
+	for _, char := range password {
+		switch {
+		case unicode.IsUpper(char):
+			hasUpper = true
+		case unicode.IsDigit(char):
+			hasDigit = true
+		case unicode.IsPunct(char) || unicode.IsSymbol(char):
+			hasSpecial = true
+		}
+	}
+	if !hasUpper || !hasDigit || !hasSpecial {
+		return errors.New("password must contain at least one uppercase letter, one digit, and one special character")
+	}
+	return nil
 }
