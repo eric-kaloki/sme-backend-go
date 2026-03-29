@@ -3,6 +3,10 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 	"github.com/machakos/sme-backend-go/internal/audit"
@@ -11,30 +15,43 @@ import (
 	"github.com/machakos/sme-backend-go/pkg/argon2"
 	"github.com/machakos/sme-backend-go/pkg/jwt"
 	"github.com/machakos/sme-backend-go/pkg/resend"
-	"net/http"
-	"time"
 )
 
 type Handler struct {
-	userRepo  *user.Repository
-	auditRepo *audit.Repository
-	jwt       *jwt.TokenProvider
-	mailer    *resend.Mailer
-	validate  *validator.Validate
+	userRepo    *user.Repository
+	auditRepo   *audit.Repository
+	jwt         *jwt.TokenProvider
+	revoker     jwt.Revoker // Fix #3: needed for logout revocation
+	mailer      *resend.Mailer
+	validate    *validator.Validate
+	frontendURL string // Fix #14: no more hardcoded URLs
 }
 
-func NewHandler(userRepo *user.Repository, auditRepo *audit.Repository, jwtProv *jwt.TokenProvider, mailer *resend.Mailer) *Handler {
+func NewHandler(
+	userRepo *user.Repository,
+	auditRepo *audit.Repository,
+	jwtProv *jwt.TokenProvider,
+	revoker jwt.Revoker,
+	mailer *resend.Mailer,
+	frontendURL string,
+) *Handler {
 	return &Handler{
-		userRepo:  userRepo,
-		auditRepo: auditRepo,
-		jwt:       jwtProv,
-		mailer:    mailer,
-		validate:  validator.New(),
+		userRepo:    userRepo,
+		auditRepo:   auditRepo,
+		jwt:         jwtProv,
+		revoker:     revoker,
+		mailer:      mailer,
+		validate:    validator.New(),
+		frontendURL: frontendURL,
 	}
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Request / Response types
+// ─────────────────────────────────────────────────────────────────────────────
+
 type LoginRequest struct {
-	Email    string `json:"email" validate:"required,email"`
+	Email    string `json:"email"    validate:"required"`
 	Password string `json:"password" validate:"required"`
 }
 
@@ -51,6 +68,7 @@ type UserResponse struct {
 	LastLogin         *time.Time `json:"lastLogin"`
 }
 
+// LoginResponse — Fix #4: Token and RefreshToken are now genuinely different tokens.
 type LoginResponse struct {
 	Token                  string       `json:"token"`
 	RefreshToken           string       `json:"refreshToken"`
@@ -59,13 +77,16 @@ type LoginResponse struct {
 	RequiresPasswordChange bool         `json:"requiresPasswordChange"`
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Login
+// ─────────────────────────────────────────────────────────────────────────────
+
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		common.RespondError(w, http.StatusBadRequest, "Invalid request body", err)
 		return
 	}
-
 	if err := h.validate.Struct(req); err != nil {
 		common.RespondError(w, http.StatusBadRequest, "Validation failed", err)
 		return
@@ -73,55 +94,40 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	u, err := h.userRepo.FindByEmail(req.Email)
 	if err != nil {
-		// Fallback: try to find by username in case the user typed their username into the "Email" field
+		// Fallback: allow login with username in the email field
 		u, err = h.userRepo.FindByUsername(req.Email)
 		if err != nil {
-			h.auditRepo.LogAsync(audit.AuditLog{
-				Action:      "LOGIN_FAILED",
-				EntityType:  "AUTH",
-				Description: h.ptr("Failed login attempt: " + req.Email),
-				IPAddress:   h.ptr(r.RemoteAddr),
-				UserAgent:   h.ptr(r.Header.Get("User-Agent")),
-			})
+			h.logFailedLogin(r, req.Email)
 			common.RespondError(w, http.StatusUnauthorized, "Invalid email, username, or password", nil)
 			return
 		}
 	}
 
-	// Verify password
 	match, err := argon2.CheckPassword(req.Password, u.Password)
 	if err != nil || !match {
-		h.auditRepo.LogAsync(audit.AuditLog{
-			Action:      "LOGIN_FAILED",
-			EntityType:  "AUTH",
-			UserID:      &u.ID,
-			Description: h.ptr("Invalid password for user: " + u.Email),
-			IPAddress:   h.ptr(r.RemoteAddr),
-			UserAgent:   h.ptr(r.Header.Get("User-Agent")),
-		})
+		h.logFailedLoginUser(r, u)
 		common.RespondError(w, http.StatusUnauthorized, "Invalid email or password", nil)
 		return
 	}
 
-	// Important: Check user status
 	if u.Status != "ACTIVE" {
 		common.RespondError(w, http.StatusForbidden, "User account is not active", errors.New("user_status_"+u.Status))
 		return
 	}
 
-	// Generate JWT claims
 	var customPerms interface{}
 	if u.CustomPermissions != nil && *u.CustomPermissions != "" {
-		json.Unmarshal([]byte(*u.CustomPermissions), &customPerms) // Parse JSON string from DB to inject cleanly into JWT
+		// Ignore unmarshal error — bad JSON in DB should not block login
+		_ = json.Unmarshal([]byte(*u.CustomPermissions), &customPerms)
 	}
 
-	tokenString, err := h.jwt.GenerateToken(u.ID, u.Username, u.Email, u.Role, customPerms)
+	// Fix #4: Generate a real token pair — access and refresh have different secrets and TTLs.
+	tokenPair, err := h.jwt.GenerateTokenPair(u.ID, u.Username, u.Email, u.Role, customPerms)
 	if err != nil {
 		common.RespondError(w, http.StatusInternalServerError, "Failed to generate token", err)
 		return
 	}
 
-	// AUDIT LOG
 	h.auditRepo.LogAsync(audit.AuditLog{
 		Action:      "LOGIN",
 		EntityType:  "AUTH",
@@ -131,13 +137,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		UserAgent:   h.ptr(r.Header.Get("User-Agent")),
 	})
 
-	// Update last login asynchronously
 	go h.userRepo.UpdateLastLogin(u.ID)
 
 	response := LoginResponse{
-		Token:                  tokenString,
-		RefreshToken:           tokenString,  // TODO: different TTL for refresh token
-		SessionTimeout:         24 * 60 * 60, // 24 hours in seconds
+		Token:                  tokenPair.AccessToken,
+		RefreshToken:           tokenPair.RefreshToken,
+		SessionTimeout:         3600, // 1 hour in seconds, matching JWT_EXPIRATION_HOURS=1
 		RequiresPasswordChange: u.IsTemporaryPassword,
 		Admin: UserResponse{
 			ID:                u.ID,
@@ -156,15 +161,41 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	common.RespondSuccess(w, http.StatusOK, "Login successful", response)
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Logout — Fix #3: actually revoke the access token
+// ─────────────────────────────────────────────────────────────────────────────
+
+type LogoutRequest struct {
+	RefreshToken string `json:"refreshToken"`
+}
+
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	// In a stateless JWT setup, logout is mainly handled client-side.
-	user := common.GetUserFromContext(r.Context())
-	if user != nil {
+	reqUser := common.GetUserFromContext(r.Context())
+
+	// Revoke the access token from the Authorization header.
+	// extractBearerToken is safe to call — middleware already confirmed the
+	// header exists, so this cannot fail in practice.
+	if tokenString, err := extractBearerToken(r); err == nil {
+		if claims, err := h.jwt.ValidateAccessToken(tokenString); err == nil {
+			// Revoke until its natural expiry so we don't keep it forever
+			h.revoker.Revoke(claims.ID, claims.ExpiresAt.Time)
+		}
+	}
+
+	// Also revoke the refresh token if the client provides it.
+	var req LogoutRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.RefreshToken != "" {
+		if claims, err := h.jwt.ValidateRefreshToken(req.RefreshToken); err == nil {
+			h.revoker.Revoke(claims.ID, claims.ExpiresAt.Time)
+		}
+	}
+
+	if reqUser != nil {
 		h.auditRepo.LogAsync(audit.AuditLog{
 			Action:      "LOGOUT",
 			EntityType:  "AUTH",
-			UserID:      &user.ID,
-			Description: h.ptr("User logged out: " + user.Email),
+			UserID:      &reqUser.ID,
+			Description: h.ptr("User logged out: " + reqUser.Email),
 			IPAddress:   h.ptr(r.RemoteAddr),
 			UserAgent:   h.ptr(r.Header.Get("User-Agent")),
 		})
@@ -173,18 +204,60 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	common.RespondSuccess(w, http.StatusOK, "Logged out successfully", nil)
 }
 
-func (h *Handler) ptr(s string) *string {
-	return &s
+// ─────────────────────────────────────────────────────────────────────────────
+// Refresh — Fix #4: issue a new access token from a valid refresh token
+// ─────────────────────────────────────────────────────────────────────────────
+
+type RefreshRequest struct {
+	RefreshToken string `json:"refreshToken" validate:"required"`
 }
+
+func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	var req RefreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		common.RespondError(w, http.StatusBadRequest, "Invalid request body", err)
+		return
+	}
+	if err := h.validate.Struct(req); err != nil {
+		common.RespondError(w, http.StatusBadRequest, "Refresh token is required", err)
+		return
+	}
+
+	claims, err := h.jwt.ValidateRefreshToken(req.RefreshToken)
+	if err != nil {
+		common.RespondError(w, http.StatusUnauthorized, "Invalid or expired refresh token", nil)
+		return
+	}
+
+	// Check the refresh token has not been revoked (e.g. after a logout).
+	if h.revoker.IsRevoked(claims.ID) {
+		common.RespondError(w, http.StatusUnauthorized, "Refresh token has been revoked", nil)
+		return
+	}
+
+	// Rotate: revoke the old refresh token and issue a fresh pair.
+	h.revoker.Revoke(claims.ID, claims.ExpiresAt.Time)
+
+	tokenPair, err := h.jwt.GenerateTokenPair(
+		claims.Subject, claims.Username, claims.Email, claims.Role, claims.Permissions,
+	)
+	if err != nil {
+		common.RespondError(w, http.StatusInternalServerError, "Failed to issue new tokens", err)
+		return
+	}
+
+	common.RespondSuccess(w, http.StatusOK, "Token refreshed", map[string]string{
+		"token":        tokenPair.AccessToken,
+		"refreshToken": tokenPair.RefreshToken,
+	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Password flows
+// ─────────────────────────────────────────────────────────────────────────────
 
 type ForgotPasswordRequest struct {
 	Email string `json:"email" validate:"required,email"`
-}
-
-type ResetPasswordRequest struct {
-	Token       string `json:"token" validate:"required"`
-	Password    string `json:"password"`
-	NewPassword string `json:"newPassword"`
 }
 
 func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
@@ -193,23 +266,43 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		common.RespondError(w, http.StatusBadRequest, "Invalid request payload", err)
 		return
 	}
-	u, err := h.userRepo.FindByEmail(req.Email)
-	if err != nil || u.Status != "ACTIVE" {
-		// Crucial: Always return success to prevent email verification scanning / scamming
+
+	// Fix #11: validate.Struct was missing in the original — now present.
+	if err := h.validate.Struct(req); err != nil {
+		// Return the same success message even on validation failure to
+		// prevent email enumeration.
 		common.RespondSuccess(w, http.StatusOK, "If that email exists, a reset link has been sent.", nil)
 		return
 	}
-	// Generate a secure reset token
+
+	u, err := h.userRepo.FindByEmail(strings.ToLower(req.Email))
+	if err != nil || u.Status != "ACTIVE" {
+		// Always return success — prevents email verification scanning.
+		common.RespondSuccess(w, http.StatusOK, "If that email exists, a reset link has been sent.", nil)
+		return
+	}
+
 	token := uuid.New().String()
-	expires := time.Now().Add(10 * time.Minute)
+	// Fix #15: TTL is now 1 hour, matching what the email template says.
+	const resetTokenTTL = 1 * time.Hour
+	expires := time.Now().Add(resetTokenTTL)
+
 	if err := h.userRepo.SetPasswordResetToken(u.ID, &token, &expires); err != nil {
 		common.RespondError(w, http.StatusInternalServerError, "Failed to generate token", err)
 		return
 	}
-	// resetLink := "http://localhost:8081/reset-password?token=" + token
-	resetLink := "https://machakoscountysmes-new.vercel.app/reset-password?token=" + token
+
+	// Fix #14: frontendURL from config, not hardcoded.
+	resetLink := h.frontendURL + "/reset-password?token=" + token
 	h.mailer.SendPasswordReset(u.Email, u.FirstName, resetLink)
+
 	common.RespondSuccess(w, http.StatusOK, "If that email exists, a reset link has been sent.", nil)
+}
+
+type ResetPasswordRequest struct {
+	Token       string `json:"token"       validate:"required"`
+	Password    string `json:"password"`
+	NewPassword string `json:"newPassword"`
 }
 
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
@@ -219,33 +312,27 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Unmask the real password from whichever JSON field the frontend used
 	actualPassword := req.NewPassword
 	if actualPassword == "" {
 		actualPassword = req.Password
 	}
-
-	// 2. We MUST manually validate the password since it could be in either field
 	if len(actualPassword) < 8 {
 		common.RespondError(w, http.StatusBadRequest, "Password must be at least 8 characters", nil)
 		return
 	}
 
-	// 3. Validate the token exists and is not expired
 	u, err := h.userRepo.FindByResetToken(req.Token)
 	if err != nil {
 		common.RespondError(w, http.StatusBadRequest, "Invalid or expired reset token", nil)
 		return
 	}
 
-	// 4. Hash the actual password!
 	hash, err := argon2.HashPassword(actualPassword)
 	if err != nil {
 		common.RespondError(w, http.StatusInternalServerError, "Failed to encrypt password", err)
 		return
 	}
 
-	// 5. Clear token to prevent reuse and update user
 	u.Password = hash
 	u.IsTemporaryPassword = false
 	u.ResetToken = nil
@@ -254,12 +341,13 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		common.RespondError(w, http.StatusInternalServerError, "Failed to update password", err)
 		return
 	}
+
 	common.RespondSuccess(w, http.StatusOK, "Password reset successfully! You can now log in.", nil)
 }
 
 type ChangePasswordRequest struct {
 	CurrentPassword string `json:"currentPassword" validate:"required"`
-	NewPassword     string `json:"newPassword" validate:"required,min=8"`
+	NewPassword     string `json:"newPassword"     validate:"required,min=8"`
 }
 
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
@@ -286,13 +374,13 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	match, err := argon2.CheckPassword(req.CurrentPassword, u.Password)
 	if err != nil || !match {
-		common.RespondError(w, http.StatusUnauthorized, "Incorrect old password", nil)
+		common.RespondError(w, http.StatusUnauthorized, "Incorrect current password", nil)
 		return
 	}
 
 	hash, err := argon2.HashPassword(req.NewPassword)
 	if err != nil {
-		common.RespondError(w, http.StatusInternalServerError, "Failed to hash custom password", err)
+		common.RespondError(w, http.StatusInternalServerError, "Failed to hash password", err)
 		return
 	}
 
@@ -304,4 +392,31 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	common.RespondSuccess(w, http.StatusOK, "Password successfully changed!", nil)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+func (h *Handler) ptr(s string) *string { return &s }
+
+func (h *Handler) logFailedLogin(r *http.Request, identifier string) {
+	h.auditRepo.LogAsync(audit.AuditLog{
+		Action:      "LOGIN_FAILED",
+		EntityType:  "AUTH",
+		Description: h.ptr("Failed login attempt: " + identifier),
+		IPAddress:   h.ptr(r.RemoteAddr),
+		UserAgent:   h.ptr(r.Header.Get("User-Agent")),
+	})
+}
+
+func (h *Handler) logFailedLoginUser(r *http.Request, u *user.User) {
+	h.auditRepo.LogAsync(audit.AuditLog{
+		Action:      "LOGIN_FAILED",
+		EntityType:  "AUTH",
+		UserID:      &u.ID,
+		Description: h.ptr("Invalid password for user: " + u.Email),
+		IPAddress:   h.ptr(r.RemoteAddr),
+		UserAgent:   h.ptr(r.Header.Get("User-Agent")),
+	})
 }

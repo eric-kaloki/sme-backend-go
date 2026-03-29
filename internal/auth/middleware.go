@@ -10,20 +10,30 @@ import (
 	"github.com/machakos/sme-backend-go/pkg/jwt"
 )
 
-// RequireAuth middleware verifies the JWT token and attaches user claims to context
-func RequireAuth(jwtProv *jwt.TokenProvider) func(http.Handler) http.Handler {
+// RequireAuth middleware validates the JWT access token and checks the
+// revocation store before allowing the request through.
+//
+// Fix #3: IsRevoked check ensures logged-out tokens are rejected immediately,
+// not just after their natural expiry.
+func RequireAuth(jwtProv *jwt.TokenProvider, revoker jwt.Revoker) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			tokenString, err := extractBearerToken(r)
+			if err != nil {
 				common.RespondError(w, http.StatusUnauthorized, "Missing or invalid authorization header", nil)
 				return
 			}
 
-			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-			claims, err := jwtProv.ValidateToken(tokenString)
+			// Fix #3: Validate as access token only (not refresh).
+			claims, err := jwtProv.ValidateAccessToken(tokenString)
 			if err != nil {
 				common.RespondError(w, http.StatusUnauthorized, "Invalid or expired token", err)
+				return
+			}
+
+			// Fix #3: Check revocation store — catches explicitly logged-out tokens.
+			if revoker.IsRevoked(claims.ID) {
+				common.RespondError(w, http.StatusUnauthorized, "Token has been revoked", nil)
 				return
 			}
 
@@ -41,7 +51,7 @@ func RequireAuth(jwtProv *jwt.TokenProvider) func(http.Handler) http.Handler {
 	}
 }
 
-// RequireAnyRole middleware ensures the authenticated user has one of the allowed roles
+// RequireAnyRole middleware ensures the authenticated user has one of the allowed roles.
 func RequireAnyRole(roles ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -51,20 +61,26 @@ func RequireAnyRole(roles ...string) func(http.Handler) http.Handler {
 				return
 			}
 
-			hasRole := false
 			for _, allowedRole := range roles {
 				if user.Role == allowedRole {
-					hasRole = true
-					break
+					next.ServeHTTP(w, r)
+					return
 				}
 			}
 
-			if !hasRole {
-				common.RespondError(w, http.StatusForbidden, "You do not have permission to perform this action", errors.New("role_forbidden"))
-				return
-			}
-
-			next.ServeHTTP(w, r)
+			common.RespondError(w, http.StatusForbidden, "You do not have permission to perform this action", errors.New("role_forbidden"))
 		})
 	}
+}
+
+func extractBearerToken(r *http.Request) (string, error) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		return "", errors.New("missing bearer token")
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == "" {
+		return "", errors.New("empty bearer token")
+	}
+	return token, nil
 }
