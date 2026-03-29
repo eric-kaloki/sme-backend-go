@@ -2,6 +2,7 @@ package resend
 
 import (
 	"github.com/resend/resend-go/v2"
+	"html"
 	"log"
 )
 
@@ -50,11 +51,17 @@ func (m *Mailer) SendUserCredentials(toEmail, firstName, lastName, username, tem
 	if !m.enabled {
 		return
 	}
+	// Redact/Escape user-controlled data to prevent HTML injection (#05)
+	eFN := html.EscapeString(firstName)
+	eLN := html.EscapeString(lastName)
+	eUN := html.EscapeString(username)
+	eRole := html.EscapeString(role)
+
 	content := `
-		<p>Hi ` + firstName + ` ` + lastName + `,</p>
-		<p>Your account for the Machakos County SME System has been created successfully with the role of <strong>` + role + `</strong>.</p>
+		<p>Hi ` + eFN + ` ` + eLN + `,</p>
+		<p>Your account for the Machakos County SME System has been created successfully with the role of <strong>` + eRole + `</strong>.</p>
 		<div style="background-color: #f3f4f6; padding: 16px; border-radius: 8px; margin: 20px 0;">
-			<p style="margin: 0 0 8px 0;"><strong>Username:</strong> ` + username + `</p>
+			<p style="margin: 0 0 8px 0;"><strong>Username:</strong> ` + eUN + `</p>
 			<p style="margin: 0;"><strong>Password:</strong> ` + tempPassword + `</p>
 		</div>
 		<p>Please log in and construct a new password immediately for security purposes.</p>
@@ -67,8 +74,11 @@ func (m *Mailer) SendPasswordReset(toEmail, firstName, resetLink string) {
 	if !m.enabled {
 		return
 	}
+	// Escape user-controlled data to prevent HTML injection (#05)
+	eFN := html.EscapeString(firstName)
+
 	content := `
-		<p>Hi ` + firstName + `,</p>
+		<p>Hi ` + eFN + `,</p>
 		<p>We received a request to reset the password for your Machakos County SME System account.</p>
 		<p>If you made this request, click the button below to set a new password. This link will safely expire in 1 hour.</p>
 		<a href="` + resetLink + `" class="btn">Reset Password</a>

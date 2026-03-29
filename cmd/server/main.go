@@ -16,10 +16,11 @@ import (
 	"github.com/go-chi/httprate"
 	"github.com/machakos/sme-backend-go/config"
 	"github.com/machakos/sme-backend-go/internal/audit"
-	internalMiddleware "github.com/machakos/sme-backend-go/internal/middleware"
 	"github.com/machakos/sme-backend-go/internal/auth"
+	internalMiddleware "github.com/machakos/sme-backend-go/internal/middleware"
 	"github.com/machakos/sme-backend-go/internal/sme"
 	"github.com/machakos/sme-backend-go/internal/user"
+	"github.com/machakos/sme-backend-go/pkg/crypto"
 	"github.com/machakos/sme-backend-go/pkg/database"
 	"github.com/machakos/sme-backend-go/pkg/jwt"
 	"github.com/machakos/sme-backend-go/pkg/resend"
@@ -27,7 +28,10 @@ import (
 
 func main() {
 	cfg := config.LoadConfig()
-
+	// Fail-fast if encryption secrets are invalid instead of panicking later.
+	if err := crypto.ValidateKey(cfg.EncryptionSecretKey); err != nil {
+		log.Fatalf("FATAL: Encryption configuration error: %v", err)
+	}
 	// 1. Connect database
 	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
@@ -62,6 +66,7 @@ func main() {
 	// Global middleware
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
+	r.Use(internalMiddleware.SecurityHeaders)
 	r.Use(internalMiddleware.RequestLogger)
 	r.Use(middleware.Recoverer)
 	r.Use(httprate.LimitByIP(100, 1*time.Minute))

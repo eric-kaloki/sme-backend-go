@@ -103,8 +103,11 @@ func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	page, _ := strconv.Atoi(q.Get("page"))
 	size, err := strconv.Atoi(q.Get("size"))
-	if err != nil || size == 0 {
+	if err != nil || size <= 0 {
 		size = 10
+	}
+	if size > 100 {
+		size = 100
 	}
 
 	users, total, err := h.service.GetAllUsers(q.Get("search"), q.Get("role"), q.Get("status"), q.Get("sortBy"), q.Get("sortDir"), page, size, &User{ID: reqUser.ID, Role: reqUser.Role})
