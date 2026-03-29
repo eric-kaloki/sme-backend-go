@@ -22,24 +22,29 @@ const (
 	gcmStandardNonceSize = 12
 )
 
-func parseKey(keyStr string) []byte {
+func parseKey(keyStr string) ([]byte, error) {
 	b, err := base64.StdEncoding.DecodeString(keyStr)
-	if err == nil {
-		switch len(b) {
-		case 16, 24, 32:
-			// Valid AES key sizes: use as-is
-			return b
-		case 64:
-			// Java may use a 512-bit (64-byte) key; truncate to first 32 bytes for AES-256
-			return b[:32]
-		default:
-			if len(b) > 32 {
-				// Any key longer than 32 bytes: use first 32 bytes
-				return b[:32]
-			}
+	if err != nil {
+		return nil, errors.New("invalid base64 encryption key")
+	}
+	switch len(b) {
+	case 16, 24, 32:
+		return b, nil
+	case 64:
+		return b[:32], nil
+	default:
+		if len(b) > 32 {
+			return b[:32], nil
 		}
 	}
-	panic("ENCRYPTION_SECRET_KEY is misconfigured or invalid Base64. Server cannot start securely.")
+	return nil, errors.New("ENCRYPTION_SECRET_KEY must be a base64 string that yields at least 16 bytes")
+}
+
+// ValidateKey checks if the provided key is valid for AES encryption.
+// This should be called at startup to fail-fast if misconfigured.
+func ValidateKey(keyBase64 string) error {
+	_, err := parseKey(keyBase64)
+	return err
 }
 
 // Encrypt encrypts the plaintext using AES-256-GCM.
@@ -50,7 +55,10 @@ func Encrypt(plaintext string, keyBase64 string) (string, error) {
 		return plaintext, nil
 	}
 
-	key := parseKey(keyBase64)
+	key, err := parseKey(keyBase64)
+	if err != nil {
+		return "", err
+	}
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -85,7 +93,10 @@ func Decrypt(ciphertextBase64 string, keyBase64 string) (string, error) {
 		return ciphertextBase64, nil
 	}
 
-	key := parseKey(keyBase64)
+	key, err := parseKey(keyBase64)
+	if err != nil {
+		return "", err
+	}
 
 	combined, err := base64.StdEncoding.DecodeString(ciphertextBase64)
 	if err != nil {

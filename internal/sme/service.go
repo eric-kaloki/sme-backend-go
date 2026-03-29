@@ -16,6 +16,23 @@ var (
 	ErrForbidden = errors.New("forbidden")
 )
 
+// smeWriteRoles mirrors the Java DatabaseSeeder permissions:
+// SUPER_ADMIN, CHIEF_OFFICER, DIRECTOR, SME_OFFICER all have sme:create and sme:update.
+// This matches the Spring Boot role definitions exactly.
+var smeWriteRoles = map[string]bool{
+	"SUPER_ADMIN":   true,
+	"CHIEF_OFFICER": true,
+	"DIRECTOR":      true,
+	"SME_OFFICER":   true,
+}
+
+// smeDeleteRoles: only SUPER_ADMIN and CHIEF_OFFICER have sme:delete per the seeder.
+// DIRECTOR and SME_OFFICER do NOT have delete permission.
+var smeDeleteRoles = map[string]bool{
+	"SUPER_ADMIN":   true,
+	"CHIEF_OFFICER": true,
+}
+
 type Service struct {
 	repo          *Repository
 	auditRepo     *audit.Repository
@@ -46,7 +63,7 @@ func (s *Service) decryptPtr(val *string) *string {
 	}
 	dec, err := crypto.Decrypt(*val, s.cryptoKey)
 	if err != nil {
-		return val // fallback to raw
+		return val // fallback to raw on decrypt failure — don't crash the response
 	}
 	return &dec
 }
@@ -59,8 +76,25 @@ func (s *Service) blindIndexPtr(val *string) *string {
 	return &idx
 }
 
+// canWriteSME checks if the requesting user has sme:create / sme:update permission.
+// Aligned with the Java DatabaseSeeder role-permission mapping.
+func canWriteSME(requester *user.User) bool {
+	return smeWriteRoles[requester.Role]
+}
+
+// canDeleteSME checks if the requesting user has sme:delete permission.
+// Only SUPER_ADMIN and CHIEF_OFFICER per the Java seeder.
+func canDeleteSME(requester *user.User) bool {
+	return smeDeleteRoles[requester.Role]
+}
+
 func (s *Service) CreateSME(req SmeRequest, creator *user.User) (*SME, error) {
-	// Encrypt required fields
+	// Fix #2: Role check — was completely missing before.
+	// SME_OFFICER, DIRECTOR, CHIEF_OFFICER, SUPER_ADMIN all have sme:create.
+	if !canWriteSME(creator) {
+		return nil, ErrForbidden
+	}
+
 	encBizName, err := crypto.Encrypt(req.BusinessName, s.cryptoKey)
 	if err != nil {
 		return nil, err
@@ -76,11 +110,11 @@ func (s *Service) CreateSME(req SmeRequest, creator *user.User) (*SME, error) {
 		return nil, err
 	}
 
-	// Encrypt optional
 	encEmail, err := s.encryptPtr(s.nilIfEmpty(req.Email))
 	if err != nil {
 		return nil, err
 	}
+
 	encIdNum, err := s.encryptPtr(s.nilIfEmpty(req.IDNumber))
 	if err != nil {
 		return nil, err
@@ -118,7 +152,6 @@ func (s *Service) CreateSME(req SmeRequest, creator *user.User) (*SME, error) {
 		return nil, err
 	}
 
-	// Audit log
 	s.auditRepo.LogAsync(audit.AuditLog{
 		Action:      "SME_CREATE",
 		EntityType:  "SME",
@@ -127,133 +160,16 @@ func (s *Service) CreateSME(req SmeRequest, creator *user.User) (*SME, error) {
 		Description: ptr("Created SME: " + req.BusinessName),
 	})
 
-	// Decrypt immediately before returning to handler
 	return s.decryptEntity(newSme), nil
 }
 
-func (s *Service) SearchSMEs(searchEmail, searchPhone, status, category, subCounty, ward, gender, pwd, sortBy, sortDir string, page, size int, requester *user.User) ([]SME, int, error) {
-	// 1. Convert plaintext searches into blind index hashes!
-	var emailHash, phoneHash string
-	if searchEmail != "" {
-		emailHash = crypto.GenerateBlindIndex(searchEmail, s.blindIndexKey)
-	}
-	if searchPhone != "" {
-		phoneHash = crypto.GenerateBlindIndex(searchPhone, s.blindIndexKey)
-	}
-
-	smes, total, err := s.repo.SearchSMEs(emailHash, phoneHash, status, category, subCounty, ward, gender, pwd, sortBy, sortDir, page, size)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	for i := range smes {
-		smes[i] = *s.decryptEntity(&smes[i])
-	}
-	return smes, total, nil
-}
-
-func (s *Service) decryptEntity(sme *SME) *SME {
-	// Safely decrypts in place ignoring errors (returns cipher if decryption fails to avoid crashing entire payload)
-	if dec, err := crypto.Decrypt(sme.BusinessName, s.cryptoKey); err == nil {
-		sme.BusinessName = dec
-	}
-	if dec, err := crypto.Decrypt(sme.OwnerName, s.cryptoKey); err == nil {
-		sme.OwnerName = dec
-	}
-	if dec, err := crypto.Decrypt(sme.Phone, s.cryptoKey); err == nil {
-		sme.Phone = dec
-	}
-	sme.Email = s.decryptPtr(sme.Email)
-	sme.IDNumber = s.decryptPtr(sme.IDNumber)
-	return sme
-}
-
-func (s *Service) nilIfEmpty(val *string) *string {
-	if val != nil && *val == "" {
-		return nil
-	}
-	return val
-}
-
-func ptr(s string) *string { return &s }
-
-// -------------------------------------------------------------------------------------------------
-// Cache & Analytics Management
-// -------------------------------------------------------------------------------------------------
-
-var statsCache SmeStatsOverviewResponse
-var cacheExpiry int64 = 0
-var cacheMutex sync.RWMutex
-
-func (s *Service) GetStatsOverview(subCounty, ward string) (SmeStatsOverviewResponse, error) {
-	// Only cache the raw un-filtered dashboard overview.
-	if subCounty == "" && ward == "" {
-		cacheMutex.RLock()
-		if time.Now().Unix() < cacheExpiry {
-			defer cacheMutex.RUnlock()
-			return statsCache, nil
-		}
-		cacheMutex.RUnlock()
-	}
-
-	response, err := s.repo.GetStatsOverview(subCounty, ward)
-	if err != nil {
-		return response, err
-	}
-
-	if subCounty == "" && ward == "" {
-		cacheMutex.Lock()
-		statsCache = response
-		cacheExpiry = time.Now().Add(60 * time.Second).Unix()
-		cacheMutex.Unlock()
-	}
-
-	return response, nil
-}
-
-func (s *Service) GetAvailableCategories() ([]string, error) {
-	return s.repo.GetDistinctList("category")
-}
-func (s *Service) GetAvailableSubCounties() ([]string, error) {
-	return s.repo.GetDistinctList("sub_county")
-}
-func (s *Service) GetAvailableWards() ([]string, error) { return s.repo.GetDistinctList("ward") }
-
-func (s *Service) DeleteSME(id string, deleter *user.User) error {
-	if deleter.Role == "SME_OFFICER" {
-		return ErrForbidden
-	}
-
-	existing, err := s.repo.FindByID(id)
-	if err != nil {
-		return err
-	}
-	if existing == nil {
-		return ErrNotFound
-	}
-
-	if err := s.repo.Delete(id); err != nil {
-		return err
-	}
-
-	// Decrypt business name for audit log
-	bizName := existing.BusinessName
-	if dec, decErr := crypto.Decrypt(bizName, s.cryptoKey); decErr == nil {
-		bizName = dec
-	}
-
-	s.auditRepo.LogAsync(audit.AuditLog{
-		Action:      "SME_DELETE",
-		EntityType:  "SME",
-		EntityID:    &id,
-		UserID:      &deleter.ID,
-		Description: ptr("Deleted SME: " + bizName),
-	})
-
-	return nil
-}
-
 func (s *Service) UpdateSME(id string, req SmeRequest, updater *user.User) (*SME, error) {
+	// Fix #2: Role check — was completely missing before.
+	// All four roles have sme:update per the Java seeder.
+	if !canWriteSME(updater) {
+		return nil, ErrForbidden
+	}
+
 	existing, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, err
@@ -262,7 +178,6 @@ func (s *Service) UpdateSME(id string, req SmeRequest, updater *user.User) (*SME
 		return nil, ErrNotFound
 	}
 
-	// Encrypt required fields
 	encBizName, err := crypto.Encrypt(req.BusinessName, s.cryptoKey)
 	if err != nil {
 		return nil, err
@@ -275,8 +190,6 @@ func (s *Service) UpdateSME(id string, req SmeRequest, updater *user.User) (*SME
 	if err != nil {
 		return nil, err
 	}
-
-	// Encrypt optional
 	encEmail, err := s.encryptPtr(s.nilIfEmpty(req.Email))
 	if err != nil {
 		return nil, err
@@ -316,7 +229,6 @@ func (s *Service) UpdateSME(id string, req SmeRequest, updater *user.User) (*SME
 		return nil, err
 	}
 
-	// Audit log
 	s.auditRepo.LogAsync(audit.AuditLog{
 		Action:      "SME_UPDATE",
 		EntityType:  "SME",
@@ -326,4 +238,127 @@ func (s *Service) UpdateSME(id string, req SmeRequest, updater *user.User) (*SME
 	})
 
 	return s.decryptEntity(existing), nil
+}
+
+func (s *Service) DeleteSME(id string, deleter *user.User) error {
+	// Fix #2: Corrected to use dedicated delete-role map (was checking SME_OFFICER only).
+	if !canDeleteSME(deleter) {
+		return ErrForbidden
+	}
+
+	existing, err := s.repo.FindByID(id)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return ErrNotFound
+	}
+
+	if err := s.repo.Delete(id); err != nil {
+		return err
+	}
+
+	bizName := existing.BusinessName
+	if dec, decErr := crypto.Decrypt(bizName, s.cryptoKey); decErr == nil {
+		bizName = dec
+	}
+
+	s.auditRepo.LogAsync(audit.AuditLog{
+		Action:      "SME_DELETE",
+		EntityType:  "SME",
+		EntityID:    &id,
+		UserID:      &deleter.ID,
+		Description: ptr("Deleted SME: " + bizName),
+	})
+
+	return nil
+}
+
+func (s *Service) SearchSMEs(searchEmail, searchPhone, status, category, subCounty, ward, gender, pwd, sortBy, sortDir string, page, size int, requester *user.User) ([]SME, int, error) {
+	var emailHash, phoneHash string
+	if searchEmail != "" {
+		emailHash = crypto.GenerateBlindIndex(searchEmail, s.blindIndexKey)
+	}
+	if searchPhone != "" {
+		phoneHash = crypto.GenerateBlindIndex(searchPhone, s.blindIndexKey)
+	}
+
+	smes, total, err := s.repo.SearchSMEs(emailHash, phoneHash, status, category, subCounty, ward, gender, pwd, sortBy, sortDir, page, size)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	for i := range smes {
+		smes[i] = *s.decryptEntity(&smes[i])
+	}
+	return smes, total, nil
+}
+
+func (s *Service) decryptEntity(sme *SME) *SME {
+	if dec, err := crypto.Decrypt(sme.BusinessName, s.cryptoKey); err == nil {
+		sme.BusinessName = dec
+	}
+	if dec, err := crypto.Decrypt(sme.OwnerName, s.cryptoKey); err == nil {
+		sme.OwnerName = dec
+	}
+	if dec, err := crypto.Decrypt(sme.Phone, s.cryptoKey); err == nil {
+		sme.Phone = dec
+	}
+	sme.Email = s.decryptPtr(sme.Email)
+	sme.IDNumber = s.decryptPtr(sme.IDNumber)
+	return sme
+}
+
+func (s *Service) nilIfEmpty(val *string) *string {
+	if val != nil && *val == "" {
+		return nil
+	}
+	return val
+}
+
+func ptr(s string) *string { return &s }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cache & Analytics
+// ─────────────────────────────────────────────────────────────────────────────
+
+var statsCache SmeStatsOverviewResponse
+var cacheExpiry int64 = 0
+var cacheMutex sync.RWMutex
+
+func (s *Service) GetStatsOverview(subCounty, ward string) (SmeStatsOverviewResponse, error) {
+	if subCounty == "" && ward == "" {
+		cacheMutex.RLock()
+		if time.Now().Unix() < cacheExpiry {
+			defer cacheMutex.RUnlock()
+			return statsCache, nil
+		}
+		cacheMutex.RUnlock()
+	}
+
+	response, err := s.repo.GetStatsOverview(subCounty, ward)
+	if err != nil {
+		return response, err
+	}
+
+	if subCounty == "" && ward == "" {
+		cacheMutex.Lock()
+		statsCache = response
+		cacheExpiry = time.Now().Add(60 * time.Second).Unix()
+		cacheMutex.Unlock()
+	}
+
+	return response, nil
+}
+
+func (s *Service) GetAvailableCategories() ([]string, error) {
+	return s.repo.GetDistinctList("category")
+}
+
+func (s *Service) GetAvailableSubCounties() ([]string, error) {
+	return s.repo.GetDistinctList("sub_county")
+}
+
+func (s *Service) GetAvailableWards() ([]string, error) {
+	return s.repo.GetDistinctList("ward")
 }

@@ -62,6 +62,10 @@ func (h *Handler) CreateSME(w http.ResponseWriter, r *http.Request) {
 	creator := &user.User{ID: reqUser.ID, Role: reqUser.Role}
 	smeEntity, err := h.service.CreateSME(req, creator)
 	if err != nil {
+		if err == ErrForbidden {
+			common.RespondError(w, http.StatusForbidden, "Forbidden", err)
+			return
+		}
 		common.RespondError(w, http.StatusInternalServerError, "Failed to create SME", err)
 		return
 	}
@@ -85,6 +89,10 @@ func (h *Handler) DeleteSME(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.DeleteSME(id, deleter); err != nil {
 		if err == ErrNotFound {
 			common.RespondError(w, http.StatusNotFound, "SME not found", err)
+			return
+		}
+		if err == ErrForbidden {
+			common.RespondError(w, http.StatusForbidden, "Forbidden", err)
 			return
 		}
 		common.RespondError(w, http.StatusInternalServerError, "Failed to delete SME", err)
@@ -123,6 +131,10 @@ func (h *Handler) UpdateSME(w http.ResponseWriter, r *http.Request) {
 			common.RespondError(w, http.StatusNotFound, "SME not found", err)
 			return
 		}
+		if err == ErrForbidden {
+			common.RespondError(w, http.StatusForbidden, "Forbidden", err)
+			return
+		}
 		common.RespondError(w, http.StatusInternalServerError, "Failed to update SME", err)
 		return
 	}
@@ -139,8 +151,11 @@ func (h *Handler) GetAllSMEs(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	page, _ := strconv.Atoi(q.Get("page"))
 	size, err := strconv.Atoi(q.Get("size"))
-	if err != nil || size == 0 {
+	if err != nil || size <= 0 {
 		size = 10
+	}
+	if size > 100 {
+		size = 100
 	}
 
 	// Use EXACT matching via plain search terms -> blind indexes
