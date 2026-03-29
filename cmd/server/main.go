@@ -81,10 +81,18 @@ func main() {
 		MaxAge:         300,
 	}))
 
-	// Health check — unauthenticated, required by Render
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+	// Health check — supports GET and HEAD for load balancers (#17)
+	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"UP"}`))
+		if r.Method == http.MethodGet {
+			w.Write([]byte(`{"status":"UP", "version":"1.0.0"}`))
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
 	})
 
 	// Public auth routes — tightly rate limited

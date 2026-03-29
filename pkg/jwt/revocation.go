@@ -31,6 +31,7 @@ type Revoker interface {
 	Revoke(jti string, expiresAt time.Time)
 	IsRevoked(jti string) bool
 }
+
 // Revoke adds a JTI to the blacklist until its natural expiry.
 func (s *RevocationStore) Revoke(jti string, expiresAt time.Time) {
 	s.mu.Lock()

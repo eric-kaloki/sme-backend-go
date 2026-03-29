@@ -39,7 +39,7 @@ func (s *DbRevocationStore) IsRevoked(jti string) bool {
 		"SELECT EXISTS(SELECT 1 FROM revoked_tokens WHERE jti = $1 AND expires_at > NOW())",
 		jti,
 	).Scan(&exists)
-	
+
 	if err != nil {
 		// If the DB check fails, we default to "not revoked" to avoid blocking valid users,
 		// but we log the error for investigation.
@@ -60,7 +60,7 @@ func (s *DbRevocationStore) runCleanup() {
 			log.Printf("ERROR: Failed to clean up expired revoked tokens: %v", err)
 			continue
 		}
-		
+
 		if rows, _ := result.RowsAffected(); rows > 0 {
 			log.Printf("INFO: Cleaned up %d expired revoked tokens from database", rows)
 		}
