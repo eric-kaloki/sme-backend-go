@@ -21,6 +21,13 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		// Enable XSS protection in older browsers
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 
+		// Restrict where content can be loaded from (Content Security Policy)
+		// For an API, we can be quite restrictive.
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; sandbox")
+
+		// Restrict browser features (Permissions Policy)
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+
 		next.ServeHTTP(w, r)
 	})
 }
