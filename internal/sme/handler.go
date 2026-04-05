@@ -11,16 +11,18 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
+	"github.com/machakos/sme-backend-go/internal/audit"
 	"github.com/machakos/sme-backend-go/internal/common"
 	"github.com/machakos/sme-backend-go/pkg/export"
 )
 
 type Handler struct {
-	service  *Service
-	validate *validator.Validate
+	service   *Service
+	auditRepo *audit.Repository
+	validate  *validator.Validate
 }
 
-func NewHandler(service *Service) *Handler {
+func NewHandler(service *Service, auditRepo *audit.Repository) *Handler {
 	v := validator.New()
 
 	// Complex regexes are better handled as named validators to avoid tag parsing issues with pipes (|)
@@ -37,10 +39,13 @@ func NewHandler(service *Service) *Handler {
 	})
 
 	return &Handler{
-		service:  service,
-		validate: v,
+		service:   service,
+		auditRepo: auditRepo,
+		validate:  v,
 	}
 }
+
+func (h *Handler) ptr(s string) *string { return &s }
 
 func (h *Handler) CreateSME(w http.ResponseWriter, r *http.Request) {
 	reqUser := common.GetUserFromContext(r.Context())
@@ -252,6 +257,16 @@ func (h *Handler) ExportSMEs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.auditRepo.LogAsync(audit.AuditLog{
+		Action:     "SME_EXPORT",
+		EntityType: "SME",
+		UserID:     &reqUser.ID,
+		Description: h.ptr(fmt.Sprintf("Exported %d SMEs (Format: %s, Filters: %s)",
+			len(responses), format, r.URL.RawQuery)),
+		IPAddress: h.ptr(r.RemoteAddr),
+		UserAgent: h.ptr(r.Header.Get("User-Agent")),
+	})
+
 	headers := []string{"ID", "Business Name", "Owner Name", "Phone", "Email", "ID Number", "Permit", "Gender", "Category", "SubCategory", "PWD", "SubCounty", "Ward", "Status", "Created At"}
 	var rows [][]string
 	for _, s := range responses {
@@ -285,6 +300,18 @@ func (h *Handler) ExportAnalytics(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		common.RespondError(w, http.StatusInternalServerError, "Failed to retrieve stats", err)
 		return
+	}
+
+	reqUser := common.GetUserFromContext(r.Context())
+	if reqUser != nil {
+		h.auditRepo.LogAsync(audit.AuditLog{
+			Action:      "ANALYTICS_EXPORT",
+			EntityType:  "ANALYTICS",
+			UserID:      &reqUser.ID,
+			Description: h.ptr(fmt.Sprintf("Exported Analytics (Format: %s, Filters: %s)", format, r.URL.RawQuery)),
+			IPAddress:   h.ptr(r.RemoteAddr),
+			UserAgent:   h.ptr(r.Header.Get("User-Agent")),
+		})
 	}
 
 	var sheets []export.SheetData

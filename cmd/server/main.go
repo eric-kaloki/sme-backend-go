@@ -145,7 +145,7 @@ func main() {
 	// SME routes — Fix #2: service now enforces role checks on Create/Update/Delete
 	smeRepo := sme.NewRepository(db)
 	smeService := sme.NewService(smeRepo, auditRepo, cfg.EncryptionSecretKey, cfg.BlindIndexKey)
-	smeHandler := sme.NewHandler(smeService)
+	smeHandler := sme.NewHandler(smeService, auditRepo)
 
 	apiRouter.Route("/sme", func(r chi.Router) {
 		r.With(auth.RequirePermission("sme:create")).Post("/", smeHandler.CreateSME)
