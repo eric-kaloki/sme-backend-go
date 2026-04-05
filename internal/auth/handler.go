@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/machakos/sme-backend-go/internal/audit"
 	"github.com/machakos/sme-backend-go/internal/common"
+	"github.com/machakos/sme-backend-go/internal/rbac"
 	"github.com/machakos/sme-backend-go/internal/user"
 	"github.com/machakos/sme-backend-go/pkg/argon2"
 	"github.com/machakos/sme-backend-go/pkg/jwt"
@@ -24,6 +26,7 @@ type Handler struct {
 	jwt         *jwt.TokenProvider
 	revoker     jwt.Revoker // Fix #3: needed for logout revocation
 	mailer      *resend.Mailer
+	rbac        *rbac.Service
 	validate    *validator.Validate
 	frontendURL string // Fix #14: no more hardcoded URLs
 }
@@ -35,6 +38,7 @@ func NewHandler(
 	revoker jwt.Revoker,
 	mailer *resend.Mailer,
 	frontendURL string,
+	rbacService *rbac.Service,
 ) *Handler {
 	return &Handler{
 		userRepo:    userRepo,
@@ -42,6 +46,7 @@ func NewHandler(
 		jwt:         jwtProv,
 		revoker:     revoker,
 		mailer:      mailer,
+		rbac:        rbacService,
 		validate:    validator.New(),
 		frontendURL: frontendURL,
 	}
@@ -65,6 +70,7 @@ type UserResponse struct {
 	Phone             *string    `json:"phone"`
 	Role              string     `json:"role"`
 	Status            string     `json:"status"`
+	Permissions       []string   `json:"permissions"`
 	CustomPermissions *string    `json:"customPermissions"`
 	LastLogin         *time.Time `json:"lastLogin"`
 }
@@ -116,14 +122,20 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var customPerms interface{}
-	if u.CustomPermissions != nil && *u.CustomPermissions != "" {
-		// Ignore unmarshal error — bad JSON in DB should not block login
-		_ = json.Unmarshal([]byte(*u.CustomPermissions), &customPerms)
+	// RBAC Integration: Calculate effective permissions instead of raw unmarshal
+	// Pass nil as requester for internal system lookup during login
+	permSet, err := h.rbac.GetUserPermissions(u.ID, nil)
+	var permNames []string
+	if err != nil {
+		log.Printf("ERROR: Failed to resolve permissions for %s: %v", u.Email, err)
+		// Fallback to empty if DB has issues but don't block login
+		permNames = []string{}
+	} else {
+		permNames = permSet.EffectivePermissionNames()
 	}
 
 	// Fix #4: Generate a real token pair — access and refresh have different secrets and TTLs.
-	tokenPair, err := h.jwt.GenerateTokenPair(u.ID, u.Username, u.Email, u.Role, customPerms)
+	tokenPair, err := h.jwt.GenerateTokenPair(u.ID, u.Username, u.Email, u.Role, permNames)
 	if err != nil {
 		common.RespondError(w, http.StatusInternalServerError, "Failed to generate token", err)
 		return
@@ -154,6 +166,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			Phone:             u.Phone,
 			Role:              u.Role,
 			Status:            u.Status,
+			Permissions:       permNames,
 			CustomPermissions: u.CustomPermissions,
 			LastLogin:         u.LastLogin,
 		},
@@ -239,17 +252,28 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	// Rotate: revoke the old refresh token and issue a fresh pair.
 	h.revoker.Revoke(claims.ID, claims.ExpiresAt.Time)
 
+	// Re-verify current permissions on refresh to capture any administrative changes
+	// Pass nil as requester for internal system lookup during refresh
+	permSet, err := h.rbac.GetUserPermissions(claims.Subject, nil)
+	var effectivePermissions interface{}
+	if err == nil {
+		effectivePermissions = permSet.EffectivePermissionNames()
+	} else {
+		effectivePermissions = claims.Permissions
+	}
+
 	tokenPair, err := h.jwt.GenerateTokenPair(
-		claims.Subject, claims.Username, claims.Email, claims.Role, claims.Permissions,
+		claims.Subject, claims.Username, claims.Email, claims.Role, effectivePermissions,
 	)
 	if err != nil {
 		common.RespondError(w, http.StatusInternalServerError, "Failed to issue new tokens", err)
 		return
 	}
 
-	common.RespondSuccess(w, http.StatusOK, "Token refreshed", map[string]string{
+	common.RespondSuccess(w, http.StatusOK, "Token refreshed", map[string]interface{}{
 		"token":        tokenPair.AccessToken,
 		"refreshToken": tokenPair.RefreshToken,
+		"permissions":   effectivePermissions,
 	})
 }
 

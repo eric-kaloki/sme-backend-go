@@ -3,11 +3,13 @@ package user
 import (
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/machakos/sme-backend-go/internal/audit"
+	"github.com/machakos/sme-backend-go/internal/common"
 	"github.com/machakos/sme-backend-go/pkg/argon2"
 	"github.com/machakos/sme-backend-go/pkg/resend"
 )
@@ -65,8 +67,8 @@ func GenerateTempPassword(length int) string {
 	return string(current)
 }
 
-func (s *Service) CreateUser(req CreateUserRequest, creator *User) (*User, error) {
-	if creator.Role != "SUPER_ADMIN" && creator.Role != "CHIEF_OFFICER" {
+func (s *Service) CreateUser(req CreateUserRequest, creator *common.AuthenticatedUser) (*User, error) {
+	if creator.Role != "SUPER_ADMIN" && !creator.HasPermission("user:create") {
 		return nil, ErrForbidden
 	}
 
@@ -124,8 +126,8 @@ func (s *Service) CreateUser(req CreateUserRequest, creator *User) (*User, error
 	return newUser, nil
 }
 
-func (s *Service) GetAllUsers(search, role, status, sortBy, sortDir string, page, size int, requester *User) ([]User, int, error) {
-	if roleHierarchy[requester.Role] < roleHierarchy["DIRECTOR"] {
+func (s *Service) GetAllUsers(search, role, status, sortBy, sortDir string, page, size int, requester *common.AuthenticatedUser) ([]User, int, error) {
+	if requester.Role != "SUPER_ADMIN" && !requester.HasPermission("user:read") {
 		return nil, 0, ErrForbidden
 	}
 
@@ -136,8 +138,8 @@ func (s *Service) GetAllUsers(search, role, status, sortBy, sortDir string, page
 	return s.repo.SearchUsers(search, role, status, sortBy, sortDir, page, size)
 }
 
-func (s *Service) GetUserById(id string, requester *User) (*User, error) {
-	if id != requester.ID && roleHierarchy[requester.Role] < roleHierarchy["DIRECTOR"] {
+func (s *Service) GetUserById(id string, requester *common.AuthenticatedUser) (*User, error) {
+	if id != requester.ID && requester.Role != "SUPER_ADMIN" && !requester.HasPermission("user:read") {
 		return nil, ErrForbidden
 	}
 
@@ -153,14 +155,19 @@ func (s *Service) GetUserById(id string, requester *User) (*User, error) {
 	return u, nil
 }
 
-func (s *Service) UpdateUser(id string, req UpdateUserRequest, updater *User) (*User, error) {
+func (s *Service) UpdateUser(id string, req UpdateUserRequest, updater *common.AuthenticatedUser) (*User, error) {
 	u, err := s.repo.FindByID(id)
 	if err != nil || u.Status == "DELETED" {
 		return nil, ErrUserNotFound
 	}
 
 	isSelfUpdate := u.ID == updater.ID
-	if !isSelfUpdate && updater.Role != "SUPER_ADMIN" && updater.Role != "CHIEF_OFFICER" {
+	if isSelfUpdate {
+		// Users can update their basic profile, but NOT sensitive administrative fields
+		if req.Role != nil || req.Status != nil {
+			return nil, fmt.Errorf("%w: you cannot change your own role or status", ErrForbidden)
+		}
+	} else if updater.Role != "SUPER_ADMIN" && !updater.HasPermission("user:update") {
 		return nil, ErrForbidden
 	}
 
@@ -248,8 +255,8 @@ func (s *Service) UpdateUser(id string, req UpdateUserRequest, updater *User) (*
 	return u, nil
 }
 
-func (s *Service) DeleteUser(id string, deleter *User) error {
-	if deleter.Role != "SUPER_ADMIN" {
+func (s *Service) DeleteUser(id string, deleter *common.AuthenticatedUser) error {
+	if deleter.Role != "SUPER_ADMIN" && !deleter.HasPermission("user:delete") {
 		return ErrForbidden
 	}
 	if id == deleter.ID {
@@ -286,8 +293,8 @@ func (s *Service) DeleteUser(id string, deleter *User) error {
 	return nil
 }
 
-func (s *Service) ResetPassword(id string, resetter *User) error {
-	if resetter.Role != "SUPER_ADMIN" && resetter.Role != "CHIEF_OFFICER" {
+func (s *Service) ResetPassword(id string, resetter *common.AuthenticatedUser) error {
+	if resetter.Role != "SUPER_ADMIN" && !resetter.HasPermission("user:update") {
 		return ErrForbidden
 	}
 

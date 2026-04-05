@@ -2,6 +2,7 @@ package user
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -89,8 +90,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	creatorUser := &User{ID: creator.ID, Email: creator.Email, Role: creator.Role}
-	userEntity, err := h.service.CreateUser(req, creatorUser)
+	userEntity, err := h.service.CreateUser(req, creator)
 	h.handleServiceError(w, err, "User created successfully. Login credentials sent.", userEntity, http.StatusCreated)
 }
 
@@ -110,7 +110,7 @@ func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 		size = 100
 	}
 
-	users, total, err := h.service.GetAllUsers(q.Get("search"), q.Get("role"), q.Get("status"), q.Get("sortBy"), q.Get("sortDir"), page, size, &User{ID: reqUser.ID, Role: reqUser.Role})
+	users, total, err := h.service.GetAllUsers(q.Get("search"), q.Get("role"), q.Get("status"), q.Get("sortBy"), q.Get("sortDir"), page, size, reqUser)
 	if err != nil {
 		h.handleServiceError(w, err, "", nil, http.StatusOK)
 		return
@@ -134,7 +134,7 @@ func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetUserById(w http.ResponseWriter, r *http.Request) {
 	reqUser := common.GetUserFromContext(r.Context())
 	id := chi.URLParam(r, "id")
-	u, err := h.service.GetUserById(id, &User{ID: reqUser.ID, Role: reqUser.Role})
+	u, err := h.service.GetUserById(id, reqUser)
 	h.handleServiceError(w, err, "User retrieved", u, http.StatusOK)
 }
 
@@ -150,14 +150,14 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		common.RespondError(w, http.StatusBadRequest, "Validation", err)
 		return
 	}
-	u, err := h.service.UpdateUser(id, req, &User{ID: reqUser.ID, Role: reqUser.Role})
+	u, err := h.service.UpdateUser(id, req, reqUser)
 	h.handleServiceError(w, err, "User updated", u, http.StatusOK)
 }
 
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	reqUser := common.GetUserFromContext(r.Context())
 	id := chi.URLParam(r, "id")
-	err := h.service.ResetPassword(id, &User{ID: reqUser.ID, Role: reqUser.Role})
+	err := h.service.ResetPassword(id, reqUser)
 	if err != nil {
 		h.handleServiceError(w, err, "", nil, http.StatusOK)
 		return
@@ -168,7 +168,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	reqUser := common.GetUserFromContext(r.Context())
 	id := chi.URLParam(r, "id")
-	err := h.service.DeleteUser(id, &User{ID: reqUser.ID, Role: reqUser.Role})
+	err := h.service.DeleteUser(id, reqUser)
 	if err != nil {
 		h.handleServiceError(w, err, "", nil, http.StatusOK)
 		return
@@ -178,20 +178,20 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleServiceError(w http.ResponseWriter, err error, successMsg string, data *User, status int) {
 	if err != nil {
-		if err == ErrForbidden {
-			common.RespondError(w, http.StatusForbidden, "Forbidden", nil)
+		if errors.Is(err, ErrForbidden) {
+			common.RespondError(w, http.StatusForbidden, err.Error(), nil)
 			return
 		}
-		if err == ErrUserNotFound {
+		if errors.Is(err, ErrUserNotFound) {
 			common.RespondError(w, http.StatusNotFound, "User not found", nil)
 			return
 		}
-		if err == ErrConflict {
+		if errors.Is(err, ErrConflict) {
 			common.RespondError(w, http.StatusConflict, "Conflict", nil)
 			return
 		}
-		if err == ErrBadRequest {
-			common.RespondError(w, http.StatusBadRequest, "Bad Request", nil)
+		if errors.Is(err, ErrBadRequest) {
+			common.RespondError(w, http.StatusBadRequest, err.Error(), nil)
 			return
 		}
 		common.RespondError(w, http.StatusInternalServerError, "Internal Error", err)

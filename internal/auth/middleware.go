@@ -73,6 +73,34 @@ func RequireAnyRole(roles ...string) func(http.Handler) http.Handler {
 	}
 }
 
+// RequirePermission middleware ensures the authenticated user has the required granular permission.
+// SUPER_ADMIN is granted bypass access to all permission-protected routes.
+func RequirePermission(permission string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := common.GetUserFromContext(r.Context())
+			if user == nil {
+				common.RespondError(w, http.StatusUnauthorized, "User context not found", nil)
+				return
+			}
+
+			// Super Admin bypass
+			if user.Role == "SUPER_ADMIN" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Check if user has the specific permission using the helper method
+			if !user.HasPermission(permission) {
+				common.RespondError(w, http.StatusForbidden, "Insufficient permissions", errors.New("permission_denied"))
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func extractBearerToken(r *http.Request) (string, error) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {

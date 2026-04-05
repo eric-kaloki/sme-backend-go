@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/machakos/sme-backend-go/internal/audit"
-	"github.com/machakos/sme-backend-go/internal/user"
+	"github.com/machakos/sme-backend-go/internal/common"
 	"github.com/machakos/sme-backend-go/pkg/crypto"
 )
 
@@ -16,22 +16,7 @@ var (
 	ErrForbidden = errors.New("forbidden")
 )
 
-// smeWriteRoles mirrors the Java DatabaseSeeder permissions:
-// SUPER_ADMIN, CHIEF_OFFICER, DIRECTOR, SME_OFFICER all have sme:create and sme:update.
-// This matches the Spring Boot role definitions exactly.
-var smeWriteRoles = map[string]bool{
-	"SUPER_ADMIN":   true,
-	"CHIEF_OFFICER": true,
-	"DIRECTOR":      true,
-	"SME_OFFICER":   true,
-}
-
-// smeDeleteRoles: only SUPER_ADMIN and CHIEF_OFFICER have sme:delete per the seeder.
-// DIRECTOR and SME_OFFICER do NOT have delete permission.
-var smeDeleteRoles = map[string]bool{
-	"SUPER_ADMIN":   true,
-	"CHIEF_OFFICER": true,
-}
+// smeWriteRoles and smeDeleteRoles are replaced by dynamic permission checks.
 
 type Service struct {
 	repo          *Repository
@@ -76,19 +61,17 @@ func (s *Service) blindIndexPtr(val *string) *string {
 	return &idx
 }
 
-// canWriteSME checks if the requesting user has sme:create / sme:update permission.
-// Aligned with the Java DatabaseSeeder role-permission mapping.
-func canWriteSME(requester *user.User) bool {
-	return smeWriteRoles[requester.Role]
+// canWriteSME checks if the requesting user has permission to create or update SMEs.
+func canWriteSME(requester *common.AuthenticatedUser) bool {
+	return requester.HasPermission("sme:write") || requester.HasPermission("sme:create") || requester.HasPermission("sme:update")
 }
 
-// canDeleteSME checks if the requesting user has sme:delete permission.
-// Only SUPER_ADMIN and CHIEF_OFFICER per the Java seeder.
-func canDeleteSME(requester *user.User) bool {
-	return smeDeleteRoles[requester.Role]
+// canDeleteSME checks if the requesting user has permission to delete SMEs.
+func canDeleteSME(requester *common.AuthenticatedUser) bool {
+	return requester.HasPermission("sme:delete")
 }
 
-func (s *Service) CreateSME(req SmeRequest, creator *user.User) (*SME, error) {
+func (s *Service) CreateSME(req SmeRequest, creator *common.AuthenticatedUser) (*SME, error) {
 	// Fix #2: Role check — was completely missing before.
 	// SME_OFFICER, DIRECTOR, CHIEF_OFFICER, SUPER_ADMIN all have sme:create.
 	if !canWriteSME(creator) {
@@ -163,7 +146,7 @@ func (s *Service) CreateSME(req SmeRequest, creator *user.User) (*SME, error) {
 	return s.decryptEntity(newSme), nil
 }
 
-func (s *Service) UpdateSME(id string, req SmeRequest, updater *user.User) (*SME, error) {
+func (s *Service) UpdateSME(id string, req SmeRequest, updater *common.AuthenticatedUser) (*SME, error) {
 	// Fix #2: Role check — was completely missing before.
 	// All four roles have sme:update per the Java seeder.
 	if !canWriteSME(updater) {
@@ -240,7 +223,7 @@ func (s *Service) UpdateSME(id string, req SmeRequest, updater *user.User) (*SME
 	return s.decryptEntity(existing), nil
 }
 
-func (s *Service) DeleteSME(id string, deleter *user.User) error {
+func (s *Service) DeleteSME(id string, deleter *common.AuthenticatedUser) error {
 	// Fix #2: Corrected to use dedicated delete-role map (was checking SME_OFFICER only).
 	if !canDeleteSME(deleter) {
 		return ErrForbidden
@@ -274,7 +257,7 @@ func (s *Service) DeleteSME(id string, deleter *user.User) error {
 	return nil
 }
 
-func (s *Service) SearchSMEs(searchEmail, searchPhone, status, category, subCounty, ward, gender, pwd, sortBy, sortDir string, page, size int, requester *user.User) ([]SME, int, error) {
+func (s *Service) SearchSMEs(searchEmail, searchPhone, status, category, subCounty, ward, gender, pwd, sortBy, sortDir string, page, size int, requester *common.AuthenticatedUser) ([]SME, int, error) {
 	var emailHash, phoneHash string
 	if searchEmail != "" {
 		emailHash = crypto.GenerateBlindIndex(searchEmail, s.blindIndexKey)

@@ -12,7 +12,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 	"github.com/machakos/sme-backend-go/internal/common"
-	"github.com/machakos/sme-backend-go/internal/user"
 	"github.com/machakos/sme-backend-go/pkg/export"
 )
 
@@ -59,11 +58,10 @@ func (h *Handler) CreateSME(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	creator := &user.User{ID: reqUser.ID, Role: reqUser.Role}
-	smeEntity, err := h.service.CreateSME(req, creator)
+	smeEntity, err := h.service.CreateSME(req, reqUser)
 	if err != nil {
-		if err == ErrForbidden {
-			common.RespondError(w, http.StatusForbidden, "Forbidden", err)
+		if errors.Is(err, ErrForbidden) {
+			common.RespondError(w, http.StatusForbidden, err.Error(), nil)
 			return
 		}
 		common.RespondError(w, http.StatusInternalServerError, "Failed to create SME", err)
@@ -85,14 +83,13 @@ func (h *Handler) DeleteSME(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deleter := &user.User{ID: reqUser.ID, Role: reqUser.Role}
-	if err := h.service.DeleteSME(id, deleter); err != nil {
-		if err == ErrNotFound {
-			common.RespondError(w, http.StatusNotFound, "SME not found", err)
+	if err := h.service.DeleteSME(id, reqUser); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			common.RespondError(w, http.StatusForbidden, err.Error(), nil)
 			return
 		}
-		if err == ErrForbidden {
-			common.RespondError(w, http.StatusForbidden, "Forbidden", err)
+		if errors.Is(err, ErrNotFound) {
+			common.RespondError(w, http.StatusNotFound, "SME not found", nil)
 			return
 		}
 		common.RespondError(w, http.StatusInternalServerError, "Failed to delete SME", err)
@@ -124,15 +121,14 @@ func (h *Handler) UpdateSME(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updater := &user.User{ID: reqUser.ID, Role: reqUser.Role}
-	smeEntity, err := h.service.UpdateSME(id, req, updater)
+	smeEntity, err := h.service.UpdateSME(id, req, reqUser)
 	if err != nil {
-		if err == ErrNotFound {
-			common.RespondError(w, http.StatusNotFound, "SME not found", err)
+		if errors.Is(err, ErrNotFound) {
+			common.RespondError(w, http.StatusNotFound, "SME not found", nil)
 			return
 		}
-		if err == ErrForbidden {
-			common.RespondError(w, http.StatusForbidden, "Forbidden", err)
+		if errors.Is(err, ErrForbidden) {
+			common.RespondError(w, http.StatusForbidden, err.Error(), nil)
 			return
 		}
 		common.RespondError(w, http.StatusInternalServerError, "Failed to update SME", err)
@@ -161,7 +157,7 @@ func (h *Handler) GetAllSMEs(w http.ResponseWriter, r *http.Request) {
 	// Use EXACT matching via plain search terms -> blind indexes
 	smes, total, err := h.service.SearchSMEs(
 		q.Get("email"), q.Get("phone"), q.Get("status"), q.Get("category"), q.Get("subCounty"),
-		"", "", "", q.Get("sortBy"), q.Get("sortDir"), page, size, &user.User{ID: reqUser.ID, Role: reqUser.Role},
+		"", "", "", q.Get("sortBy"), q.Get("sortDir"), page, size, reqUser,
 	)
 
 	if err != nil {
@@ -249,7 +245,7 @@ func (h *Handler) ExportSMEs(w http.ResponseWriter, r *http.Request) {
 	// SearchSMEs(email, phone, status, category, subCounty, ward, gender, pwd, sortBy, sortDir, page, size, reqUser)
 	responses, _, err := h.service.SearchSMEs(
 		"", q.Get("searchTerm"), q.Get("status"), q.Get("category"), q.Get("subCounty"), q.Get("ward"),
-		q.Get("gender"), q.Get("pwd"), "createdAt", "DESC", 0, 100000, &user.User{ID: reqUser.ID, Role: reqUser.Role},
+		q.Get("gender"), q.Get("pwd"), "createdAt", "DESC", 0, 100000, reqUser,
 	)
 	if err != nil {
 		common.RespondError(w, http.StatusInternalServerError, "Error exporting SMEs", err)

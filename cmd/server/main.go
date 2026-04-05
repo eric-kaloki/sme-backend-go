@@ -18,6 +18,7 @@ import (
 	"github.com/machakos/sme-backend-go/internal/audit"
 	"github.com/machakos/sme-backend-go/internal/auth"
 	internalMiddleware "github.com/machakos/sme-backend-go/internal/middleware"
+	"github.com/machakos/sme-backend-go/internal/rbac"
 	"github.com/machakos/sme-backend-go/internal/sme"
 	"github.com/machakos/sme-backend-go/internal/user"
 	"github.com/machakos/sme-backend-go/pkg/crypto"
@@ -57,8 +58,13 @@ func main() {
 	// 3. Init handlers
 	mailer := resend.NewMailer(cfg.ResendAPIKey, cfg.ResendEnabled, cfg.ResendFromEmail, cfg.ResendFromName)
 
+	// RBAC Integration
+	rbacRepo := rbac.NewRepository(db)
+	rbacService := rbac.NewService(rbacRepo, userRepo, auditRepo)
+	rbacHandler := rbac.NewHandler(rbacService)
+
 	// Fix #3/#4/#14: Handler now receives revoker and frontendURL.
-	authHandler := auth.NewHandler(userRepo, auditRepo, jwtProvider, revocationStore, mailer, cfg.FrontendURL)
+	authHandler := auth.NewHandler(userRepo, auditRepo, jwtProvider, revocationStore, mailer, cfg.FrontendURL, rbacService)
 
 	// 4. Router setup
 	r := chi.NewRouter()
@@ -119,12 +125,12 @@ func main() {
 	userHandler := user.NewHandler(userService)
 
 	apiRouter.Route("/users", func(r chi.Router) {
-		r.Post("/", userHandler.CreateUser)
-		r.Get("/", userHandler.GetAllUsers)
-		r.Get("/{id}", userHandler.GetUserById)
-		r.Put("/{id}", userHandler.UpdateUser)
-		r.Post("/{id}/reset-password", userHandler.ResetPassword)
-		r.Delete("/{id}", userHandler.DeleteUser)
+		r.With(auth.RequirePermission("user:create")).Post("/", userHandler.CreateUser)
+		r.With(auth.RequirePermission("user:read")).Get("/", userHandler.GetAllUsers)
+		r.With(auth.RequirePermission("user:read")).Get("/{id}", userHandler.GetUserById)
+		r.With(auth.RequirePermission("user:update")).Put("/{id}", userHandler.UpdateUser)
+		r.With(auth.RequirePermission("user:update")).Post("/{id}/reset-password", userHandler.ResetPassword)
+		r.With(auth.RequirePermission("user:delete")).Delete("/{id}", userHandler.DeleteUser)
 	})
 
 	// SME routes — Fix #2: service now enforces role checks on Create/Update/Delete
@@ -133,32 +139,38 @@ func main() {
 	smeHandler := sme.NewHandler(smeService)
 
 	apiRouter.Route("/sme", func(r chi.Router) {
-		r.Post("/", smeHandler.CreateSME)
-		r.Get("/", smeHandler.GetAllSMEs)
-		r.Delete("/{id}", smeHandler.DeleteSME)
-		r.Put("/{id}", smeHandler.UpdateSME)
-		r.Get("/export", smeHandler.ExportSMEs)
+		r.With(auth.RequirePermission("sme:create")).Post("/", smeHandler.CreateSME)
+		r.With(auth.RequirePermission("sme:read")).Get("/", smeHandler.GetAllSMEs)
+		r.With(auth.RequirePermission("sme:delete")).Delete("/{id}", smeHandler.DeleteSME)
+		r.With(auth.RequirePermission("sme:update")).Put("/{id}", smeHandler.UpdateSME)
+		r.With(auth.RequirePermission("sme:export")).Get("/export", smeHandler.ExportSMEs)
 
-		r.Get("/stats/overview", smeHandler.GetStatsOverview)
-		r.Get("/filters/categories", smeHandler.GetAvailableCategories)
-		r.Get("/filters/subcounties", smeHandler.GetAvailableSubCounties)
-		r.Get("/filters/wards", smeHandler.GetAvailableWards)
+		r.With(auth.RequirePermission("sme:read")).Get("/stats/overview", smeHandler.GetStatsOverview)
+		r.With(auth.RequirePermission("sme:read")).Get("/filters/categories", smeHandler.GetAvailableCategories)
+		r.With(auth.RequirePermission("sme:read")).Get("/filters/subcounties", smeHandler.GetAvailableSubCounties)
+		r.With(auth.RequirePermission("sme:read")).Get("/filters/wards", smeHandler.GetAvailableWards)
 	})
 
 	apiRouter.Route("/analytics", func(r chi.Router) {
-		r.Get("/export", smeHandler.ExportAnalytics)
+		r.With(auth.RequirePermission("analytics:view")).Get("/export", smeHandler.ExportAnalytics)
 	})
 
 	// Audit routes
 	auditHandler := audit.NewHandler(auditRepo)
 	apiRouter.Route("/audit", func(r chi.Router) {
-		r.Post("/log-export", auditHandler.LogExport)
-		r.Get("/user/{userId}", userHandler.GetUserAuditLogs)
+		r.With(auth.RequirePermission("audit:read")).Post("/log-export", auditHandler.LogExport)
+		r.With(auth.RequirePermission("audit:read")).Get("/user/{userId}", userHandler.GetUserAuditLogs)
 	})
 
 	apiRouter.Route("/audit-logs", func(r chi.Router) {
-		r.Get("/", auditHandler.GetAuditLogs)
-		r.Get("/export", auditHandler.ExportAuditLogs)
+		r.With(auth.RequirePermission("audit:read")).Get("/", auditHandler.GetAuditLogs)
+		r.With(auth.RequirePermission("audit:read")).Get("/export", auditHandler.ExportAuditLogs)
+	})
+
+	apiRouter.Route("/roles-permissions", func(r chi.Router) {
+		r.With(auth.RequirePermission("permission:delegate")).Get("/permissions", rbacHandler.GetAllPermissions)
+		r.With(auth.RequirePermission("user:read")).Get("/users/{userId}/permissions", rbacHandler.GetUserPermissions)
+		r.With(auth.RequirePermission("permission:delegate")).Post("/users/{userId}/permissions", rbacHandler.UpdateUserPermissions)
 	})
 
 	r.Mount("/api", apiRouter)
