@@ -179,13 +179,28 @@ func (s *Service) UpdateUserPermissions(userId, action string, permissions []str
 		return nil, fmt.Errorf("%w: Permissions list cannot be empty", ErrBadRequest)
 	}
 
-	// 3. Fetch target user
+	// 3. Strict Permission Whitelisting
+	allPerms, err := s.repo.FindAllPermissions()
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch permission dictionary: %w", err)
+	}
+	validPerms := make(map[string]bool)
+	for _, p := range allPerms {
+		validPerms[p.Name] = true
+	}
+	for _, p := range permissions {
+		if !validPerms[p] {
+			return nil, fmt.Errorf("%w: unknown permission '%s'", ErrBadRequest, p)
+		}
+	}
+
+	// 4. Fetch target user
 	targetUser, err := s.userRepo.FindByID(userId)
 	if err != nil {
 		return nil, err
 	}
 
-	// 4. Parse current custom permissions
+	// 5. Parse current custom permissions
 	var current []string
 	if targetUser.CustomPermissions != nil && *targetUser.CustomPermissions != "" {
 		_ = json.Unmarshal([]byte(*targetUser.CustomPermissions), &current)
@@ -196,7 +211,7 @@ func (s *Service) UpdateUserPermissions(userId, action string, permissions []str
 		"customPermissions": current,
 	}
 
-	// 5. Update logic
+	// 6. Update logic
 	updated := make([]string, 0)
 	if action == "add" {
 		permMap := make(map[string]bool)
@@ -222,7 +237,7 @@ func (s *Service) UpdateUserPermissions(userId, action string, permissions []str
 	}
 	sort.Strings(updated)
 
-	// 6. Save back as JSON
+	// 7. Save back as JSON
 	var jsonStr *string
 	if len(updated) > 0 {
 		bytes, _ := json.Marshal(updated)
@@ -231,7 +246,8 @@ func (s *Service) UpdateUserPermissions(userId, action string, permissions []str
 	}
 	targetUser.CustomPermissions = jsonStr
 
-	if err := s.userRepo.Update(targetUser); err != nil {
+	// Use Atomic Update to prevent race conditions
+	if err := s.userRepo.UpdateCustomPermissions(userId, jsonStr); err != nil {
 		return nil, err
 	}
 

@@ -96,6 +96,18 @@ func (r *Repository) Update(user *User) error {
 	).Scan(&user.UpdatedAt)
 }
 
+// UpdateCustomPermissions atomically updates only the permissions column
+func (r *Repository) UpdateCustomPermissions(userId string, permissionsJson *string) error {
+	_, err := r.db.Exec("UPDATE users SET custom_permissions = $1, updated_at = NOW() WHERE id = $2", permissionsJson, userId)
+	return err
+}
+
+// UpdateRoleAndStatus atomically updates only administrative fields
+func (r *Repository) UpdateRoleAndStatus(userId string, role, status string) error {
+	_, err := r.db.Exec("UPDATE users SET role = $1, status = $2, updated_at = NOW() WHERE id = $3", role, status, userId)
+	return err
+}
+
 // SearchUsers performs paginated querying
 func (r *Repository) SearchUsers(search, role, status, sortBy, sortDir string, page, size int) ([]User, int, error) {
 	query := "SELECT * FROM users WHERE status != 'DELETED'"

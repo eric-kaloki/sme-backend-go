@@ -192,6 +192,7 @@ func (s *Service) UpdateUser(id string, req UpdateUserRequest, updater *common.A
 	}
 
 	hasRoleChange := false
+	hasStatusChange := false
 	if !isSelfUpdate && req.Role != nil {
 		newRole := strings.ToUpper(*req.Role)
 		if newRole != u.Role {
@@ -213,6 +214,7 @@ func (s *Service) UpdateUser(id string, req UpdateUserRequest, updater *common.A
 					return nil, ErrForbidden
 				}
 			} else {
+				// Only SUPER_ADMIN can demote
 				if updater.Role != "SUPER_ADMIN" {
 					return nil, ErrForbidden
 				}
@@ -230,11 +232,35 @@ func (s *Service) UpdateUser(id string, req UpdateUserRequest, updater *common.A
 		if (status == "DISABLED" || status == "DELETED") && updater.Role != "SUPER_ADMIN" {
 			return nil, ErrForbidden
 		}
-		u.Status = status
+		if status != u.Status {
+			u.Status = status
+			hasStatusChange = true
+		}
 	}
 
-	if err := s.repo.Update(u); err != nil {
-		return nil, err
+	// 7. Save Changes
+	// If only administrative fields changed, use Atomic Update to prevent race conditions
+	// If profile fields also changed, use full Update (still susceptible but protects metadata better)
+	if hasRoleChange || hasStatusChange {
+		// Profile fields also changed?
+		profileChanged := req.FirstName != nil || req.LastName != nil || req.Phone != nil || (req.Email != nil && strings.ToLower(*req.Email) != u.Email)
+		
+		if !profileChanged {
+			// Only Role/Status changed: Use Atomic Update
+			if err := s.repo.UpdateRoleAndStatus(u.ID, u.Role, u.Status); err != nil {
+				return nil, err
+			}
+		} else {
+			// Mixed updates: Full row update required
+			if err := s.repo.Update(u); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		// Only profile fields changed (or nothing): Standard update
+		if err := s.repo.Update(u); err != nil {
+			return nil, err
+		}
 	}
 
 	action := "USER_UPDATE"
@@ -267,8 +293,9 @@ func (s *Service) DeleteUser(id string, deleter *common.AuthenticatedUser) error
 	if err != nil {
 		return err
 	}
-	if u.Role == "SUPER_ADMIN" {
-		return ErrBadRequest // Disable instead of delete
+	// Super Admin Protection: Only a Super Admin can delete another Super Admin
+	if u.Role == "SUPER_ADMIN" && deleter.Role != "SUPER_ADMIN" {
+		return fmt.Errorf("%w: only a super admin can delete another super admin", ErrForbidden)
 	}
 	if u.Status == "DELETED" {
 		return ErrBadRequest
