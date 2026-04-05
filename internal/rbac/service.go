@@ -15,7 +15,7 @@ import (
 
 var (
 	ErrForbidden   = errors.New("Forbidden: Insufficient permissions")
-	ErrBadRequest  = errors.New("Bad Request: invalid action, empty permissions, or self-interference")
+	ErrBadRequest  = errors.New("Bad Request: Invalid action, empty permissions, or self-interference")
 	ErrUserNotFound = errors.New("User not found")
 )
 
