@@ -72,12 +72,24 @@ func canDeleteSME(requester *common.AuthenticatedUser) bool {
 }
 
 func (s *Service) CreateSME(req SmeRequest, creator *common.AuthenticatedUser) (*SME, error) {
-	// Fix #2: Role check — was completely missing before.
-	// SME_OFFICER, DIRECTOR, CHIEF_OFFICER, SUPER_ADMIN all have sme:create.
+	// 1. Security Check
 	if !canWriteSME(creator) {
 		return nil, ErrForbidden
 	}
 
+	// 2. XSS Sanitization
+	req.BusinessName = common.Sanitize(req.BusinessName)
+	req.OwnerName = common.Sanitize(req.OwnerName)
+	req.Email = common.SanitizePtr(req.Email)
+	req.BusinessPermitNumber = common.SanitizePtr(req.BusinessPermitNumber)
+	req.Category = common.Sanitize(req.Category)
+	req.SubCategory = common.SanitizePtr(req.SubCategory)
+	req.SubCounty = common.Sanitize(req.SubCounty)
+	req.Ward = common.Sanitize(req.Ward)
+	req.MarketTown = common.SanitizePtr(req.MarketTown)
+	req.BusinessAddress = common.Sanitize(req.BusinessAddress)
+
+	// 3. Sensitive Data Encryption
 	encBizName, err := crypto.Encrypt(req.BusinessName, s.cryptoKey)
 	if err != nil {
 		return nil, err
@@ -147,11 +159,22 @@ func (s *Service) CreateSME(req SmeRequest, creator *common.AuthenticatedUser) (
 }
 
 func (s *Service) UpdateSME(id string, req SmeRequest, updater *common.AuthenticatedUser) (*SME, error) {
-	// Fix #2: Role check — was completely missing before.
-	// All four roles have sme:update per the Java seeder.
+	// 1. Security Check
 	if !canWriteSME(updater) {
 		return nil, ErrForbidden
 	}
+
+	// 2. XSS Sanitization
+	req.BusinessName = common.Sanitize(req.BusinessName)
+	req.OwnerName = common.Sanitize(req.OwnerName)
+	req.Email = common.SanitizePtr(req.Email)
+	req.BusinessPermitNumber = common.SanitizePtr(req.BusinessPermitNumber)
+	req.Category = common.Sanitize(req.Category)
+	req.SubCategory = common.SanitizePtr(req.SubCategory)
+	req.SubCounty = common.Sanitize(req.SubCounty)
+	req.Ward = common.Sanitize(req.Ward)
+	req.MarketTown = common.SanitizePtr(req.MarketTown)
+	req.BusinessAddress = common.Sanitize(req.BusinessAddress)
 
 	existing, err := s.repo.FindByID(id)
 	if err != nil {

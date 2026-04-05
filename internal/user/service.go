@@ -68,9 +68,15 @@ func GenerateTempPassword(length int) string {
 }
 
 func (s *Service) CreateUser(req CreateUserRequest, creator *common.AuthenticatedUser) (*User, error) {
+	// 1. Security Check
 	if creator.Role != "SUPER_ADMIN" && !creator.HasPermission("user:create") {
 		return nil, ErrForbidden
 	}
+
+	// 2. XSS Sanitization
+	req.FirstName = common.Sanitize(req.FirstName)
+	req.LastName = common.Sanitize(req.LastName)
+	req.Username = common.Sanitize(req.Username)
 
 	req.Email = strings.ToLower(req.Email)
 	req.Username = strings.ToLower(req.Username)
@@ -156,6 +162,10 @@ func (s *Service) GetUserById(id string, requester *common.AuthenticatedUser) (*
 }
 
 func (s *Service) UpdateUser(id string, req UpdateUserRequest, updater *common.AuthenticatedUser) (*User, error) {
+	// 1. XSS Sanitization
+	req.FirstName = common.SanitizePtr(req.FirstName)
+	req.LastName = common.SanitizePtr(req.LastName)
+
 	u, err := s.repo.FindByID(id)
 	if err != nil || u.Status == "DELETED" {
 		return nil, ErrUserNotFound
