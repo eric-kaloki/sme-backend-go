@@ -14,9 +14,9 @@ import (
 )
 
 var (
-	ErrForbidden   = errors.New("forbidden: insufficient permissions")
-	ErrBadRequest  = errors.New("bad request: invalid action, empty permissions, or self-interference")
-	ErrUserNotFound = errors.New("user not found")
+	ErrForbidden   = errors.New("Forbidden: Insufficient permissions")
+	ErrBadRequest  = errors.New("Bad Request: invalid action, empty permissions, or self-interference")
+	ErrUserNotFound = errors.New("User not found")
 )
 
 type Service struct {
@@ -153,7 +153,7 @@ func (s *Service) UpdateUserPermissions(userId, action string, permissions []str
 	// 1. Security Check
 	// - Block self-interference (prevent users from managing their own extra permissions)
 	if userId == updater.ID {
-		return nil, fmt.Errorf("%w: you cannot manage your own permissions", ErrForbidden)
+		return nil, fmt.Errorf("%w: You cannot manage your own permissions", ErrForbidden)
 	}
 
 	// - Permission check (SUPER_ADMIN or explicit delegate permission)
@@ -165,7 +165,7 @@ func (s *Service) UpdateUserPermissions(userId, action string, permissions []str
 	if updater.Role != "SUPER_ADMIN" {
 		for _, p := range permissions {
 			if !updater.HasPermission(p) {
-				return nil, fmt.Errorf("%w: you cannot delegate permission '%s' because you don't possess it", ErrForbidden, p)
+				return nil, fmt.Errorf("%w: You cannot delegate permission '%s' because you don't possess it", ErrForbidden, p)
 			}
 		}
 	}
@@ -173,10 +173,10 @@ func (s *Service) UpdateUserPermissions(userId, action string, permissions []str
 	// 2. Validation
 	action = strings.ToLower(action)
 	if action != "add" && action != "remove" {
-		return nil, fmt.Errorf("%w: action must be 'add' or 'remove'", ErrBadRequest)
+		return nil, fmt.Errorf("%w: Unknown action", ErrBadRequest)
 	}
 	if len(permissions) == 0 {
-		return nil, fmt.Errorf("%w: permissions list cannot be empty", ErrBadRequest)
+		return nil, fmt.Errorf("%w: Permissions list cannot be empty", ErrBadRequest)
 	}
 
 	// 3. Fetch target user
