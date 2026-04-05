@@ -15,9 +15,9 @@ import (
 )
 
 var (
-	ErrForbidden  = errors.New("forbidden")
-	ErrConflict   = errors.New("conflict")
-	ErrBadRequest = errors.New("bad request")
+	ErrForbidden  = errors.New("Forbidden")
+	ErrConflict   = errors.New("Conflict")
+	ErrBadRequest = errors.New("Bad Request")
 )
 
 var validRoles = map[string]bool{

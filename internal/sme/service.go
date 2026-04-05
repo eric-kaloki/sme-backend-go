@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	ErrNotFound  = errors.New("sme not found")
-	ErrForbidden = errors.New("forbidden")
+	ErrNotFound  = errors.New("SME not found")
+	ErrForbidden = errors.New("Forbidden")
 )
 
 // smeWriteRoles and smeDeleteRoles are replaced by dynamic permission checks.
