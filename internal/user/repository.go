@@ -108,6 +108,25 @@ func (r *Repository) UpdateRoleAndStatus(userId string, role, status string) err
 	return err
 }
 
+// IncrementFailedLogin atomically increments the failure count and sets locked_until if threshold reached
+func (r *Repository) IncrementFailedLogin(id string) error {
+	query := `
+		UPDATE users SET 
+			failed_login_count = failed_login_count + 1,
+			locked_until = CASE WHEN failed_login_count + 1 >= 5 THEN NOW() + INTERVAL '15 minutes' ELSE locked_until END,
+			updated_at = NOW()
+		WHERE id = $1
+	`
+	_, err := r.db.Exec(query, id)
+	return err
+}
+
+// ResetFailedLogin clears the failure count and lock status
+func (r *Repository) ResetFailedLogin(id string) error {
+	_, err := r.db.Exec("UPDATE users SET failed_login_count = 0, locked_until = NULL, updated_at = NOW() WHERE id = $1", id)
+	return err
+}
+
 // SearchUsers performs paginated querying
 func (r *Repository) SearchUsers(search, role, status, sortBy, sortDir string, page, size int) ([]User, int, error) {
 	query := "SELECT * FROM users WHERE status != 'DELETED'"

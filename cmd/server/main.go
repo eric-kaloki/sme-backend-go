@@ -39,6 +39,15 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
+	// 1.1 Soft Migration: Ensure brute-force shield columns exist
+	_, err = db.Exec(`
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_count INT DEFAULT 0;
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP;
+	`)
+	if err != nil {
+		log.Printf("WARNING: Failed to apply soft migration: %v", err)
+	}
+
 	// 2. Init packages & repos
 	userRepo := user.NewRepository(db)
 	auditRepo := audit.NewRepository(db)

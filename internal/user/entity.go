@@ -20,6 +20,8 @@ type User struct {
 	ResetTokenExpiry    *time.Time `db:"reset_token_expiry" json:"-"`
 	CustomPermissions   *string    `db:"custom_permissions" json:"customPermissions"`
 	LastLogin           *time.Time `db:"last_login" json:"lastLogin"`
+	FailedLoginCount    int        `db:"failed_login_count" json:"-"`
+	LockedUntil         *time.Time `db:"locked_until" json:"-"`
 	CreatedAt           time.Time  `db:"created_at" json:"createdAt"`
 	UpdatedAt           *time.Time `db:"updated_at" json:"updatedAt"`
 }

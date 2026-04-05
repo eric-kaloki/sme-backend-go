@@ -110,11 +110,25 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 1. Check for Account Lock
+	if u.LockedUntil != nil && u.LockedUntil.After(time.Now()) {
+		h.logFailedLoginUser(r, u)
+		common.RespondError(w, http.StatusForbidden, "Account is temporarily locked due to multiple failed login attempts. Please try again later.", nil)
+		return
+	}
+
 	match, err := argon2.CheckPassword(req.Password, u.Password)
 	if err != nil || !match {
 		h.logFailedLoginUser(r, u)
-		common.RespondError(w, http.StatusUnauthorized, "Invalid email or password", nil)
+		// Atomic Increment failure count and potentially lock
+		_ = h.userRepo.IncrementFailedLogin(u.ID)
+		common.RespondError(w, http.StatusUnauthorized, "Invalid email, username, or password", nil)
 		return
+	}
+
+	// 2. Successful Login: Reset Failure Count
+	if u.FailedLoginCount > 0 || u.LockedUntil != nil {
+		_ = h.userRepo.ResetFailedLogin(u.ID)
 	}
 
 	if u.Status != "ACTIVE" {
