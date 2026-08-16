@@ -65,7 +65,7 @@ func (m *Mailer) SendUserCredentials(toEmail, firstName, lastName, username, tem
 			<p style="margin: 0;"><strong>Password:</strong> ` + tempPassword + `</p>
 		</div>
 		<p>Please log in and construct a new password immediately for security purposes.</p>
-		<a href="https://machakoscountysmes-new.vercel.app/login" class="btn">Log In Now</a>
+		<a href="https://smes.nextgenspark.co.ke/login" class="btn">Log In Now</a>
 	`
 	m.sendRawEmail(toEmail, "Welcome to Machakos County SME System", wrapHTML("Welcome!", content))
 }

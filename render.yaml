@@ -25,10 +25,10 @@ services:
         sync: false
       # ── CORS ──────────────────────────────────────────────────────────
       - key: ALLOWED_ORIGINS
-        value: https://machakoscountysmes-new.vercel.app
+        value: https://smes.nextgenspark.co.ke
       # ── Frontend URL (for password-reset emails etc.) ─────────────────
       - key: FRONTEND_URL
-        value: https://machakoscountysmes-new.vercel.app
+        value: https://smes.nextgenspark.co.ke
       # ── Email (Resend) ────────────────────────────────────────────────
       - key: RESEND_ENABLED
         value: "true"
