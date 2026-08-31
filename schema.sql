@@ -169,6 +169,9 @@ CREATE INDEX IF NOT EXISTS idx_revoked_tokens_expires_at ON revoked_tokens(expir
 -- Roles
 INSERT INTO roles (id, name, display_name, description, color, priority, is_system, is_active, created_at, updated_at) VALUES
 ('role-super-admin', 'SUPER_ADMIN', 'Super Administrator', 'Full system access across all modules', '#EF4444', 100, true, true, NOW(), NOW()),
+('role-chief-officer', 'CHIEF_OFFICER', 'Chief Officer', 'Executive administrative access for county management', '#8B5CF6', 90, true, true, NOW(), NOW()),
+('role-director', 'DIRECTOR', 'Director', 'Directorate level management and reports access', '#F59E0B', 75, true, true, NOW(), NOW()),
+('role-sme-officer', 'SME_OFFICER', 'SME Officer', 'Field officer access for registering and updating SMEs', '#10B981', 50, true, true, NOW(), NOW()),
 ('role-admin', 'ADMIN', 'Administrator', 'Administrative access for user and SME management', '#3B82F6', 80, true, true, NOW(), NOW()),
 ('role-officer', 'OFFICER', 'SME Officer', 'Field officer access for registering and updating SMEs', '#10B981', 50, true, true, NOW(), NOW()),
 ('role-viewer', 'VIEWER', 'Read Only Viewer', 'Read-only access to analytics and records', '#6B7280', 10, true, true, NOW(), NOW())
@@ -194,6 +197,24 @@ ON CONFLICT (name) DO NOTHING;
 
 -- Map Permissions to Roles
 
+-- CHIEF_OFFICER permissions (Full executive admin permissions)
+INSERT INTO role_permissions (id, role_id, permission_id, granted, created_at, updated_at)
+SELECT gen_random_uuid()::text, 'role-chief-officer', id, NOW(), NOW(), NOW() FROM permissions
+WHERE name IN ('user:create', 'user:read', 'user:update', 'user:delete', 'sme:create', 'sme:read', 'sme:update', 'sme:delete', 'sme:export', 'analytics:view', 'audit:read', 'permission:delegate')
+ON CONFLICT DO NOTHING;
+
+-- DIRECTOR permissions (Management level)
+INSERT INTO role_permissions (id, role_id, permission_id, granted, created_at, updated_at)
+SELECT gen_random_uuid()::text, 'role-director', id, NOW(), NOW(), NOW() FROM permissions
+WHERE name IN ('user:read', 'sme:create', 'sme:read', 'sme:update', 'sme:export', 'analytics:view', 'audit:read')
+ON CONFLICT DO NOTHING;
+
+-- SME_OFFICER permissions
+INSERT INTO role_permissions (id, role_id, permission_id, granted, created_at, updated_at)
+SELECT gen_random_uuid()::text, 'role-sme-officer', id, NOW(), NOW(), NOW() FROM permissions
+WHERE name IN ('sme:create', 'sme:read', 'sme:update', 'sme:export', 'analytics:view')
+ON CONFLICT DO NOTHING;
+
 -- ADMIN permissions
 INSERT INTO role_permissions (id, role_id, permission_id, granted, created_at, updated_at)
 SELECT gen_random_uuid()::text, 'role-admin', id, NOW(), NOW(), NOW() FROM permissions
@@ -203,7 +224,7 @@ ON CONFLICT DO NOTHING;
 -- OFFICER permissions
 INSERT INTO role_permissions (id, role_id, permission_id, granted, created_at, updated_at)
 SELECT gen_random_uuid()::text, 'role-officer', id, NOW(), NOW(), NOW() FROM permissions
-WHERE name IN ('sme:create', 'sme:read', 'sme:update', 'analytics:view')
+WHERE name IN ('sme:create', 'sme:read', 'sme:update', 'sme:export', 'analytics:view')
 ON CONFLICT DO NOTHING;
 
 -- VIEWER permissions

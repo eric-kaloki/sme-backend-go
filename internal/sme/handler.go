@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -58,6 +59,7 @@ func (h *Handler) CreateSME(w http.ResponseWriter, r *http.Request) {
 		common.RespondError(w, http.StatusBadRequest, "Invalid payload", err)
 		return
 	}
+	normalizeOptionalFields(&req)
 	if err := h.validate.Struct(req); err != nil {
 		common.RespondError(w, http.StatusBadRequest, "Validation error", err)
 		return
@@ -121,6 +123,7 @@ func (h *Handler) UpdateSME(w http.ResponseWriter, r *http.Request) {
 		common.RespondError(w, http.StatusBadRequest, "Invalid payload", err)
 		return
 	}
+	normalizeOptionalFields(&req)
 	if err := h.validate.Struct(req); err != nil {
 		common.RespondError(w, http.StatusBadRequest, "Validation error", err)
 		return
@@ -365,5 +368,23 @@ func (h *Handler) ExportAnalytics(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/csv")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"analytics_export_%s.csv\"", dateStr))
 		export.WriteStackedCSV(w, sheets)
+	}
+}
+
+func normalizeOptionalFields(req *SmeRequest) {
+	if req.Email != nil && strings.TrimSpace(*req.Email) == "" {
+		req.Email = nil
+	}
+	if req.IDNumber != nil && strings.TrimSpace(*req.IDNumber) == "" {
+		req.IDNumber = nil
+	}
+	if req.SubCategory != nil && strings.TrimSpace(*req.SubCategory) == "" {
+		req.SubCategory = nil
+	}
+	if req.MarketTown != nil && strings.TrimSpace(*req.MarketTown) == "" {
+		req.MarketTown = nil
+	}
+	if req.BusinessPermitNumber != nil && strings.TrimSpace(*req.BusinessPermitNumber) == "" {
+		req.BusinessPermitNumber = nil
 	}
 }
