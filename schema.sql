@@ -166,23 +166,26 @@ CREATE INDEX IF NOT EXISTS idx_revoked_tokens_expires_at ON revoked_tokens(expir
 -- 9. INITIAL SEED DATA FOR RBAC ROLES & PERMISSIONS
 -- ==============================================================================
 
--- Roles
-INSERT INTO roles (id, name, display_name, description, color, priority, is_system, is_active, created_at, updated_at) VALUES
-('role-super-admin', 'SUPER_ADMIN', 'Super Administrator', 'Full system access across all modules', '#EF4444', 100, true, true, NOW(), NOW()),
-('role-chief-officer', 'CHIEF_OFFICER', 'Chief Officer', 'Executive administrative access for county management', '#8B5CF6', 90, true, true, NOW(), NOW()),
-('role-director', 'DIRECTOR', 'Director', 'Directorate level management and reports access', '#F59E0B', 75, true, true, NOW(), NOW()),
-('role-sme-officer', 'SME_OFFICER', 'SME Officer', 'Field officer access for registering and updating SMEs', '#10B981', 50, true, true, NOW(), NOW()),
-('role-admin', 'ADMIN', 'Administrator', 'Administrative access for user and SME management', '#3B82F6', 80, true, true, NOW(), NOW()),
-('role-officer', 'OFFICER', 'SME Officer', 'Field officer access for registering and updating SMEs', '#10B981', 50, true, true, NOW(), NOW()),
-('role-viewer', 'VIEWER', 'Read Only Viewer', 'Read-only access to analytics and records', '#6B7280', 10, true, true, NOW(), NOW())
-ON CONFLICT (name) DO NOTHING;
+-- Remove legacy/deprecated role seeds if re-running
+DELETE FROM roles WHERE name IN ('ADMIN', 'OFFICER', 'VIEWER');
 
--- Permissions
+-- 4 Official System Roles
+INSERT INTO roles (id, name, display_name, description, color, priority, is_system, is_active, created_at, updated_at) VALUES
+('role-super-admin', 'SUPER_ADMIN', 'Super Administrator', 'Full system access across all modules, user creation/deletion, audit logs, and permission delegation', '#EF4444', 100, true, true, NOW(), NOW()),
+('role-chief-officer', 'CHIEF_OFFICER', 'Chief Officer', 'Executive access for SME management (create/read/update/delete/export), viewing/updating users, and analytics', '#8B5CF6', 90, true, true, NOW(), NOW()),
+('role-director', 'DIRECTOR', 'Director', 'Directorate level access for SME management (create/read/update/delete/export), viewing users, and analytics', '#F59E0B', 75, true, true, NOW(), NOW()),
+('role-sme-officer', 'SME_OFFICER', 'SME Officer', 'Field officer access for registering SMEs, viewing SME listings, and viewing analytics dashboard', '#10B981', 50, true, true, NOW(), NOW())
+ON CONFLICT (name) DO UPDATE SET 
+    display_name = EXCLUDED.display_name,
+    description = EXCLUDED.description,
+    priority = EXCLUDED.priority;
+
+-- System Permissions
 INSERT INTO permissions (id, name, display_name, description, category, resource, action, is_active, created_at, updated_at) VALUES
-('perm-user-create', 'user:create', 'Create User', 'Ability to register new users', 'USER', 'user', 'create', true, NOW(), NOW()),
+('perm-user-create', 'user:create', 'Create User', 'Ability to register new users (Super Admin only)', 'USER', 'user', 'create', true, NOW(), NOW()),
 ('perm-user-read', 'user:read', 'Read Users', 'Ability to view user profiles and listings', 'USER', 'user', 'read', true, NOW(), NOW()),
 ('perm-user-update', 'user:update', 'Update User', 'Ability to edit user details and status', 'USER', 'user', 'update', true, NOW(), NOW()),
-('perm-user-delete', 'user:delete', 'Delete User', 'Ability to delete or deactivate users', 'USER', 'user', 'delete', true, NOW(), NOW()),
+('perm-user-delete', 'user:delete', 'Delete User', 'Ability to delete or deactivate users (Super Admin only)', 'USER', 'user', 'delete', true, NOW(), NOW()),
 
 ('perm-sme-create', 'sme:create', 'Create SME', 'Ability to register new SME records', 'SME', 'sme', 'create', true, NOW(), NOW()),
 ('perm-sme-read', 'sme:read', 'Read SMEs', 'Ability to view SME details and lists', 'SME', 'sme', 'read', true, NOW(), NOW()),
@@ -191,46 +194,32 @@ INSERT INTO permissions (id, name, display_name, description, category, resource
 ('perm-sme-export', 'sme:export', 'Export SMEs', 'Ability to export SME data to Excel/CSV', 'SME', 'sme', 'export', true, NOW(), NOW()),
 
 ('perm-analytics-view', 'analytics:view', 'View Analytics', 'Ability to view overview stats and export analytics', 'ANALYTICS', 'analytics', 'view', true, NOW(), NOW()),
-('perm-audit-read', 'audit:read', 'View Audit Logs', 'Ability to view system audit logs', 'AUDIT', 'audit', 'read', true, NOW(), NOW()),
+('perm-audit-read', 'audit:read', 'View Audit Logs', 'Ability to view system audit logs (Super Admin only)', 'AUDIT', 'audit', 'read', true, NOW(), NOW()),
 ('perm-perm-delegate', 'permission:delegate', 'Delegate Permissions', 'Ability to assign custom permissions to users', 'RBAC', 'permission', 'delegate', true, NOW(), NOW())
 ON CONFLICT (name) DO NOTHING;
 
--- Map Permissions to Roles
+-- Reset and Map Permissions for the 4 System Roles
+DELETE FROM role_permissions;
 
--- CHIEF_OFFICER permissions (Full executive admin permissions)
+-- 1. CHIEF_OFFICER permissions
+-- Full SME management + user read/update + analytics (NO user create/delete, NO audit logs)
 INSERT INTO role_permissions (id, role_id, permission_id, granted, created_at, updated_at)
 SELECT gen_random_uuid()::text, 'role-chief-officer', id, NOW(), NOW(), NOW() FROM permissions
-WHERE name IN ('user:create', 'user:read', 'user:update', 'user:delete', 'sme:create', 'sme:read', 'sme:update', 'sme:delete', 'sme:export', 'analytics:view', 'audit:read', 'permission:delegate')
+WHERE name IN ('sme:create', 'sme:read', 'sme:update', 'sme:delete', 'sme:export', 'analytics:view', 'user:read', 'user:update')
 ON CONFLICT DO NOTHING;
 
--- DIRECTOR permissions (Management level)
+-- 2. DIRECTOR permissions
+-- Full SME management + user read + analytics (NO user create/update/delete, NO audit logs)
 INSERT INTO role_permissions (id, role_id, permission_id, granted, created_at, updated_at)
 SELECT gen_random_uuid()::text, 'role-director', id, NOW(), NOW(), NOW() FROM permissions
-WHERE name IN ('user:read', 'sme:create', 'sme:read', 'sme:update', 'sme:export', 'analytics:view', 'audit:read')
+WHERE name IN ('sme:create', 'sme:read', 'sme:update', 'sme:delete', 'sme:export', 'analytics:view', 'user:read')
 ON CONFLICT DO NOTHING;
 
--- SME_OFFICER permissions
+-- 3. SME_OFFICER permissions
+-- SME create + SME read + analytics dashboard (NO SME update/delete, NO user management, NO audit logs)
 INSERT INTO role_permissions (id, role_id, permission_id, granted, created_at, updated_at)
 SELECT gen_random_uuid()::text, 'role-sme-officer', id, NOW(), NOW(), NOW() FROM permissions
-WHERE name IN ('sme:create', 'sme:read', 'sme:update', 'sme:export', 'analytics:view')
-ON CONFLICT DO NOTHING;
-
--- ADMIN permissions
-INSERT INTO role_permissions (id, role_id, permission_id, granted, created_at, updated_at)
-SELECT gen_random_uuid()::text, 'role-admin', id, NOW(), NOW(), NOW() FROM permissions
-WHERE name IN ('user:create', 'user:read', 'user:update', 'sme:create', 'sme:read', 'sme:update', 'sme:delete', 'sme:export', 'analytics:view', 'audit:read', 'permission:delegate')
-ON CONFLICT DO NOTHING;
-
--- OFFICER permissions
-INSERT INTO role_permissions (id, role_id, permission_id, granted, created_at, updated_at)
-SELECT gen_random_uuid()::text, 'role-officer', id, NOW(), NOW(), NOW() FROM permissions
-WHERE name IN ('sme:create', 'sme:read', 'sme:update', 'sme:export', 'analytics:view')
-ON CONFLICT DO NOTHING;
-
--- VIEWER permissions
-INSERT INTO role_permissions (id, role_id, permission_id, granted, created_at, updated_at)
-SELECT gen_random_uuid()::text, 'role-viewer', id, NOW(), NOW(), NOW() FROM permissions
-WHERE name IN ('sme:read', 'analytics:view')
+WHERE name IN ('sme:create', 'sme:read', 'analytics:view')
 ON CONFLICT DO NOTHING;
 
 -- Initial Super Admin Seed User

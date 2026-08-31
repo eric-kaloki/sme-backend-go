@@ -146,6 +146,7 @@ func (s *Service) CreateSME(req SmeRequest, creator *common.AuthenticatedUser) (
 	if err := s.repo.Create(newSme); err != nil {
 		return nil, err
 	}
+	s.invalidateStatsCache()
 
 	s.auditRepo.LogAsync(audit.AuditLog{
 		Action:      "SME_CREATE",
@@ -234,6 +235,7 @@ func (s *Service) UpdateSME(id string, req SmeRequest, updater *common.Authentic
 	if err := s.repo.Update(existing); err != nil {
 		return nil, err
 	}
+	s.invalidateStatsCache()
 
 	s.auditRepo.LogAsync(audit.AuditLog{
 		Action:      "SME_UPDATE",
@@ -263,6 +265,7 @@ func (s *Service) DeleteSME(id string, deleter *common.AuthenticatedUser) error 
 	if err := s.repo.Delete(id); err != nil {
 		return err
 	}
+	s.invalidateStatsCache()
 
 	bizName := existing.BusinessName
 	if dec, decErr := crypto.Decrypt(bizName, s.cryptoKey); decErr == nil {
@@ -331,6 +334,12 @@ func ptr(s string) *string { return &s }
 var statsCache SmeStatsOverviewResponse
 var cacheExpiry int64 = 0
 var cacheMutex sync.RWMutex
+
+func (s *Service) invalidateStatsCache() {
+	cacheMutex.Lock()
+	cacheExpiry = 0
+	cacheMutex.Unlock()
+}
 
 func (s *Service) GetStatsOverview(subCounty, ward string) (SmeStatsOverviewResponse, error) {
 	if subCounty == "" && ward == "" {

@@ -192,7 +192,7 @@ func (r *Repository) GetStatsOverview(subCounty, ward string) (SmeStatsOverviewR
 	if ward != "" {
 		whereClause += fmt.Sprintf(" AND ward = $%d", argId)
 		args = append(args, ward)
-		// argId++
+		argId++
 	}
 
 	var wg sync.WaitGroup
